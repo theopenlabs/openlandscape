@@ -1,0 +1,32 @@
+{
+  "name": "openpipeline-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open, sourced drug-pipeline landscapes for people and AI agents. Server, MCP and data loader.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "fetch": "node src/ingest/ctgov.js fetch",
+    "load": "node src/ingest/ctgov.js load && node src/ingest/openfda.js && node src/ingest/curated.js && node src/ingest/link.js && node src/ingest/druglists.js && node src/ingest/verdicts.js && node src/ingest/studies.js && node src/ingest/fdalabels.js",
+    "ingest": "npm run fetch && npm run load",
+    "data": "bash scripts/get-data.sh",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "digest": "node src/digest.js",
+    "scoreboard": "node src/scoreboard.js",
+    "check": "node --check src/server.js && node test/spotcheck.js && node test/changes.js && node test/digest.js && node test/upgrade.js && node test/billing.js && node test/filings.js && node test/suggest.js && node test/goldset.js && node test/druglists.js && node test/namemap.js && node test/words.js && node test/matching.js && node test/ctis.js && node test/decisions.js && node test/review.js && node test/controlarms.js && node test/onerow.js && node test/verdicts.js && node test/diseasemap.js && node test/oauth.js && node test/signin.js && node test/scoreboard.js && node test/checked.js && node test/entities.js && node test/earlyrule.js && node test/orphans.js && node test/approvedidle.js && node test/targets.js && node test/queuesettled.js && node test/credit.js && node test/limits.js && node test/cards.js && node test/admin.js && node test/admin-pages.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@resvg/resvg-js": "^2.6.2",
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.22.3",
+    "gifenc": "^1.0.3",
+    "stripe": "^23.1.0",
+    "zod": "^4.6.7"
+  }
+}

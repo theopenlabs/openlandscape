@@ -1,0 +1,16 @@
+# systemd unit: keeps the server running and restarts it if it crashes.
+[Unit]
+Description=OpenPipeline server
+After=network.target
+
+[Service]
+User=openpipeline
+WorkingDirectory=/opt/openpipeline
+EnvironmentFile=/etc/openpipeline.env
+Environment=DB_PATH=/opt/openpipeline/data/openpipeline.db
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

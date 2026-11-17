@@ -1,0 +1,89 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "openlandscape",
+  "version": "1.0.0",
+  "description": "Drug pipelines, clinical trials and upcoming milestones from ClinicalTrials.gov, openFDA and company news, with drug names merged across codes, generic names and brands. Every fact links to its source.",
+  "author": { "name": "OpenLandscape", "url": "https://openlandscape.app" },
+  "homepage": "https://openlandscape.app/connect",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "OpenLandscape",
+        "shortDescription": "Drug pipelines and trials",
+        "longDescription": "OpenLandscape shows who is developing which drugs, how far each has got, and what happens next.\n\nAsk about a disease, a way a drug works (for example GLP-1 or amylin), a target or a company, and get every drug program in that area: the company, how it works, its stage, its next date, with links to the registry and filings behind each fact. Ask about one drug and get its other names, company, stage, approvals, upcoming dates, recent changes and active trials. You can also list trials by drug, sponsor, phase, country and status, see the readouts and regulator decisions coming up, rank the companies and sites running the most trials, and see what changed in the areas you follow.\n\nThe data comes from ClinicalTrials.gov, openFDA and company news, updated daily. Drug names are merged across codes, generic names and brand names, so mazdutide, LY3305677 and IBI362 are one drug.\n\nAnswers come with a compact card: tap a row to see more, ask a follow-up about it, or open it on openlandscape.app.\n\nFor people who track drug development: biotech and pharma strategy, business development, investors and analysts. OpenLandscape shows research and regulatory information only. It is not medical advice.",
+        "developerName": "OpenLandscape",
+        "category": "Productivity",
+        "capabilities": [
+          "Map a drug pipeline",
+          "Look up one drug",
+          "Find clinical trials",
+          "See upcoming readouts and decisions",
+          "Rank trial sponsors and sites",
+          "See what changed"
+        ],
+        "websiteURL": "https://openlandscape.app",
+        "supportURL": "https://openlandscape.app/talk",
+        "privacyPolicyURL": "https://openlandscape.app/privacy",
+        "termsOfServiceURL": "https://openlandscape.app/terms",
+        "logo": "./assets/logo.png",
+        "brandColor": "#1C1A17",
+        "defaultPrompt": [
+          "Who is developing amylin drugs, and how far has each got?",
+          "Tell me about mazdutide",
+          "Which obesity readouts or FDA decisions are coming up in the next 90 days?"
+        ]
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Pipeline for a mechanism",
+              "prompt": "Who is developing amylin drugs, and how far has each got?",
+              "tools_triggered": "landscape, then show",
+              "expected_behavior": "Lists the amylin drug programs, most advanced first, with company, stage and next date, each with its source link. One card shows the stage counts and the top drugs; tapping a row opens a short summary under it."
+            },
+            {
+              "description": "One drug",
+              "prompt": "Tell me about mazdutide",
+              "tools_triggered": "drug, then show",
+              "expected_behavior": "Gives mazdutide's other names (LY3305677, IBI362), its companies (Innovent, Lilly), how it works, its stage including its approval in China, upcoming dates and active trials, with source links. One card shows the drug."
+            },
+            {
+              "description": "Upcoming readouts and decisions",
+              "prompt": "Which obesity readouts or FDA decisions are coming up in the next 90 days?",
+              "tools_triggered": "catalysts, then show",
+              "expected_behavior": "Lists upcoming trial completions and regulator decisions in obesity in the next 90 days, soonest first, each with its date and source. One card shows the dates."
+            },
+            {
+              "description": "Sponsors running the most trials",
+              "prompt": "Which companies run the most Phase 3 obesity trials right now?",
+              "tools_triggered": "who_runs_trials, then show",
+              "expected_behavior": "Ranks sponsors by number of active Phase 3 industry trials in obesity, with counts. One card shows the ranking."
+            },
+            {
+              "description": "Trials for a drug",
+              "prompt": "List the active Phase 3 trials of orforglipron",
+              "tools_triggered": "trials (search first if the name needs resolving), then show",
+              "expected_behavior": "Lists orforglipron's active Phase 3 trials with title, status, sponsor and dates, each linking to ClinicalTrials.gov. One card shows the trials."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Personal medical advice: the app holds research data, not treatment advice",
+              "prompt": "I weigh 95 kg. Should I start taking Wegovy, and what dose?"
+            },
+            {
+              "description": "Buying medicine: the app sells nothing",
+              "prompt": "Where can I buy semaglutide cheaply online?"
+            },
+            {
+              "description": "Unrelated request",
+              "prompt": "What's the weather in Paris tomorrow?"
+            }
+          ]
+        },
+        "demo_recording_url": "https://youtu.be/VfXI4JMa08Q"
+      }
+    }
+  }
+}

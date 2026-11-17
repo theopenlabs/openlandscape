@@ -1,0 +1,341 @@
+#!/usr/bin/env bash
+# The fixed menu of things a deploy key may do on the server. Installed root-owned at /usr/local/sbin/ol-deploy.
+# Runs as the app's own user, never as root. Called through the deploy user's forced SSH command,
+# so the whole request arrives as one argument.
+#   code <40-character commit>   put a commit that is on main live; goes back by itself if the site fails its test; then regroups
+#   regroup [lookup]             re-group the drugs from the data on the server, then refresh FDA labels ("lookup" also asks the drug lists about new names)
+#   import <table>               load rows copied from a local database: gzipped CSV with a header row, on stdin
+#   status                       live commit, file checksums, data dates, row counts and recent actions
+#   copy                         a copy of the public data, gzipped, on stdout: no accounts, sign-ins, keys, payments or emails
+# The status key may only ask for status or copy: it arrives as "read <what was asked>".
+set -euo pipefail
+umask 027
+# A dropped connection must not stop a job part way. Program output goes to a file, and only short messages to the connection.
+trap '' PIPE HUP
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/home/openpipeline
+APP=/opt/openpipeline
+APP_USER=openpipeline
+SERVICE=openpipeline
+DB=$APP/data/openpipeline.db
+STATE=/var/lib/ol-deploy
+HISTORY=$STATE/history.log
+OUTPUT=$STATE/last-output.log
+REPO=git@github.com:theopenlabs/openlandscape-private.git
+GITHUB_KEY=/etc/ol-deploy/github_key
+TEST_URL=http://127.0.0.1:8080/landscapes/obesity
+TEST_WORD=Obesity
+# Rollout step 5 turns this on in a temporary copy: the new code counts as failed, and the check after going back stays real.
+FORCE_FAILED_TEST=no
+# Tables that may be imported. Never users, sessions, keys, payments or anything else a person created.
+IMPORT_TABLES=" drug_list_lookup trial intervention site trial_record trial_arm trial_mesh "
+# Tables a copy keeps. Every other table is dropped from the copy, so a table added later stays out until it is named here.
+# Left out on purpose: user, session, login_token, api_key, oauth_*, payment, usage, saved_landscape, area_request,
+# digest_log, digest_item, mail_log.
+PUBLIC_TABLES=" area_exclusion catalyst change company company_alias comparator does drug drug_alias drug_list_lookup fda_approval fda_class fda_label filing intervention match_candidate meta not_same program program_label program_merge regulatory_decision row_verdict site study study_link trial trial_arm trial_mesh trial_program trial_record "
+MAX_UPLOAD=$((1024 * 1024 * 1024))
+EXCLUDES=(--exclude /node_modules --exclude /data --exclude /.env --exclude /.git)
+export GIT_SSH_COMMAND="ssh -i $GITHUB_KEY -o IdentitiesOnly=yes -o UserKnownHostsFile=/etc/ol-deploy/known_hosts -o StrictHostKeyChecking=yes"
+
+RAW=${1:-}
+SAFE=$(printf %s "$RAW" | tr -c 'a-z0-9_ -' '?' | cut -c1-120)
+LOCKED=""
+log() {
+  local line
+  line="$(date -u +%FT%TZ) [$SAFE] $*"
+  echo "$line" >> "$HISTORY" || true
+  logger -t ol-deploy -- "$line" || true
+}
+say() { echo "$*" || true; log "$*"; }
+die() {
+  echo "REFUSED OR FAILED: $*" >&2 || true
+  [ -z "$LOCKED" ] || tail -n 15 "$OUTPUT" >&2 || true
+  log "FAILED: $*"
+  exit 1
+}
+
+[ "$(id -un)" = "$APP_USER" ] || die "must run as $APP_USER"
+cd "$APP"
+
+# The same lock the hourly data reload holds, so the two never run at once.
+take_lock() {
+  exec 9>"$APP/data/refresh.lock"
+  flock -w 900 9 || die "the data reload has been running for over 15 minutes; try again later"
+  : > "$OUTPUT"
+  LOCKED=yes
+}
+
+check_disk() {
+  local need free
+  need=$(( $(wc -c < "$DB") / 1024 * 2 + ${1:-0} ))
+  free=$(df -Pk "$APP/data" | awk 'NR==2 {print $4}')
+  [ "$free" -gt "$need" ] || die "not enough disk (free ${free} KB, need ${need} KB)"
+}
+
+# A copy made through SQLite, safe while the site is running. Keeps the newest 3.
+# Several imports in one hour share one backup, so the copy from before the first import is never pushed out by the later ones.
+backup_db() {
+  local file="$APP/data/before-$1-$(date -u +%Y%m%d-%H%M%S).db" old recent
+  if [ "$1" = import ]; then
+    recent=$(find "$APP/data" -maxdepth 1 -name 'before-import-*.db' -mmin -60 -print -quit)
+    if [ -n "$recent" ]; then
+      BACKUP=$recent
+      say "using the database backup from the last hour: $recent"
+      return
+    fi
+  fi
+  check_disk
+  sqlite3 "$DB" ".backup '$file'" >> "$OUTPUT" 2>&1 || die "database backup failed; nothing was changed"
+  ls -1t "$APP"/data/before-"$1"-*.db | tail -n +4 | while read -r old; do rm -f "$old"; done
+  say "database backed up to $file"
+  BACKUP=$file
+}
+
+site_ok() {
+  local i body
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    sleep "${TEST_WAIT:-2}"
+    body=$(curl -fsS -m 10 "$TEST_URL" 2>/dev/null) || continue
+    case "$body" in *"$TEST_WORD"*) return 0 ;; esac
+  done
+  return 1
+}
+
+restart_and_test() {
+  sudo -n /usr/bin/systemctl restart "$SERVICE" || return 1
+  site_ok
+}
+
+# ---------- code ----------
+fetch_commit() {
+  if [ ! -d "$STATE/repo.git" ]; then
+    git clone --quiet --bare "$REPO" "$STATE/repo.git" >> "$OUTPUT" 2>&1 || die "cannot reach GitHub"
+  fi
+  git -C "$STATE/repo.git" fetch --quiet origin "+refs/heads/main:refs/heads/main" >> "$OUTPUT" 2>&1 || die "cannot fetch main from GitHub"
+  git -C "$STATE/repo.git" cat-file -e "$1^{commit}" 2>/dev/null || die "commit $1 is not in the repository"
+  git -C "$STATE/repo.git" merge-base --is-ancestor "$1" main || die "commit $1 is not on main"
+  rm -rf "$STATE/new"
+  mkdir -p "$STATE/new"
+  chmod 755 "$STATE/new"
+  git -C "$STATE/repo.git" archive "$1" | tar -x -C "$STATE/new"
+  [ -f "$STATE/new/src/server.js" ] || die "commit $1 has no src/server.js"
+  node --check "$STATE/new/src/server.js" >> "$OUTPUT" 2>&1 || die "commit $1 has a syntax error in src/server.js"
+}
+
+install_code() {
+  local commit=$1 packages=$2
+  rsync -rlpt --checksum --delete "${EXCLUDES[@]}" --exclude /VERSION "$STATE/new/" "$APP/" >> "$OUTPUT" 2>&1 || return 1
+  if [ "$packages" = changed ]; then
+    npm ci --omit=dev >> "$OUTPUT" 2>&1 || return 1
+  fi
+  echo "$commit" > "$APP/VERSION"
+  restart_and_test && [ "$FORCE_FAILED_TEST" = no ]
+}
+
+roll_back() {
+  local packages=$1
+  rsync -rlpt --checksum --delete "${EXCLUDES[@]}" "$STATE/previous/code/" "$APP/" >> "$OUTPUT" 2>&1 || return 1
+  if [ "$packages" = changed ]; then
+    rsync -rlpt --checksum --delete "$STATE/previous/node_modules/" "$APP/node_modules/" >> "$OUTPUT" 2>&1 || return 1
+  fi
+  restart_and_test
+}
+
+do_code() {
+  local commit=${1:-} packages=same
+  case "$commit" in
+    *[!0-9a-f]*|"") die "code needs a 40-character commit" ;;
+  esac
+  [ "${#commit}" -eq 40 ] || die "code needs a 40-character commit"
+  [ $# -eq 1 ] || die "code takes one commit"
+  take_lock
+  fetch_commit "$commit"
+  backup_db deploy
+  cmp -s "$STATE/new/package-lock.json" "$APP/package-lock.json" || packages=changed
+
+  rm -rf "$STATE/previous"
+  mkdir -p "$STATE/previous/code"
+  rsync -rlpt "${EXCLUDES[@]}" "$APP/" "$STATE/previous/code/" >> "$OUTPUT" 2>&1 || die "could not save the current code; nothing was changed"
+  if [ "$packages" = changed ]; then
+    rsync -rlpt "$APP/node_modules/" "$STATE/previous/node_modules/" >> "$OUTPUT" 2>&1 || die "could not save the current packages; nothing was changed"
+  fi
+
+  if install_code "$commit" "$packages"; then
+    say "LIVE: $commit (site test passed)"
+    # Every deploy re-groups straight away, so a change to grouping or drug lists shows without waiting for the daily reload.
+    # If this fails the new code stays live: going back would not undo the database changes.
+    backup_db regroup
+    regroup_steps group || die "LIVE: $commit, but re-grouping stopped part way. The database was NOT put back automatically. Backup: $BACKUP"
+    restart_and_test || die "LIVE: $commit and re-grouped, but the site test then failed. The database was NOT put back automatically. Backup: $BACKUP"
+    say "re-grouped; $LABELS; site test passed"
+    return 0
+  fi
+  log "site test failed for $commit: going back"
+  if roll_back "$packages"; then
+    die "commit $commit did not install or failed the site test. Went back to the previous code; the site test passes again."
+  fi
+  die "commit $commit failed AND going back failed. THE SITE MAY BE DOWN. Needs a person with root. Saved code: $STATE/previous"
+}
+
+# ---------- regroup ----------
+# The grouping steps, then the FDA label step. The label step never stops a regroup: if it fails, the site keeps the labels it had.
+regroup_steps() {
+  LABELS="FDA labels updated"
+  { node src/ingest/link.js && node src/ingest/druglists.js "$1" && node src/ingest/verdicts.js && node src/ingest/studies.js; } >> "$OUTPUT" 2>&1 || return 1
+  node src/ingest/fdalabels.js >> "$OUTPUT" 2>&1 || LABELS="FDA labels step FAILED, kept the old ones (see last-output.log)"
+}
+
+do_regroup() {
+  local mode=${1:-group}
+  [ $# -le 1 ] || die "regroup takes at most one word"
+  case "$mode" in
+    group) mode=group ;;
+    lookup) mode=load ;;
+    *) die "regroup takes nothing, or the word lookup" ;;
+  esac
+  take_lock
+  backup_db regroup
+  regroup_steps "$mode" || die "re-grouping stopped part way. The database was NOT put back automatically. Backup: $BACKUP"
+  restart_and_test || die "re-grouped, but the site test failed. The database was NOT put back automatically. Backup: $BACKUP"
+  say "re-grouped ($mode); $LABELS; site test passed"
+}
+
+# ---------- import ----------
+do_import() {
+  local table=${1:-} file header cols selects c k known keys date match out
+  [ $# -eq 1 ] || die "import takes one table name"
+  case "$IMPORT_TABLES" in
+    *" $table "*) ;;
+    *) die "table '$table' may not be imported" ;;
+  esac
+  # The columns that identify a row, and the date that says which copy of it is newer. The by-trial tables have no date.
+  date=""
+  case "$table" in
+    drug_list_lookup) keys="list query"; date=fetched_at ;;
+    trial) keys="nct"; date=last_update ;;
+    trial_record) keys="registry record_id"; date=last_updated ;;
+    intervention|site|trial_arm|trial_mesh) keys="nct" ;;
+  esac
+  take_lock
+  check_disk $((MAX_UPLOAD / 1024))
+  backup_db import
+  file=$(mktemp "$STATE/import.XXXXXX")
+  trap "rm -f '$file'" EXIT
+  gzip -dc | head -c $((MAX_UPLOAD + 1)) > "$file" || die "the upload is not gzip, or is over the size limit"
+  [ -s "$file" ] || die "the upload is empty"
+  [ "$(wc -c < "$file")" -le "$MAX_UPLOAD" ] || die "the upload is over the size limit"
+  header=$(head -n 1 "$file" | tr -d '\r')
+  case "$header" in
+    *[!a-z0-9_,]*|"") die "the first line must be the column names" ;;
+  esac
+  for k in $keys $date; do
+    case ",$header," in
+      *",$k,"*) ;;
+      *) die "the upload must have the column '$k'" ;;
+    esac
+  done
+  known=" $(sqlite3 -readonly "$DB" "select group_concat(name, ' ') from pragma_table_info('$table')") "
+  cols=""
+  selects=""
+  local IFS=,
+  for c in $header; do
+    case "$known" in
+      *" $c "*) ;;
+      *) die "table $table has no column '$c'" ;;
+    esac
+    cols="$cols${cols:+,}\"$c\""
+    selects="$selects${selects:+,}nullif(\"$c\",'')"
+  done
+  unset IFS
+  # Never replace a row with an older copy of it. A row the server does not have is always added.
+  local older="" clear=""
+  if [ -n "$date" ]; then
+    match=""
+    for k in $keys; do match="$match s.\"$k\" = _imp.\"$k\" AND"; done
+    older="DELETE FROM temp._imp WHERE EXISTS (SELECT 1 FROM main.\"$table\" s WHERE$match s.\"$date\" > _imp.\"$date\");
+SELECT 'left alone because the server has a newer copy: ' || changes();"
+  else
+    clear="DELETE FROM main.\"$table\" WHERE nct IN (SELECT nct FROM temp._imp);"
+  fi
+  out=$(sqlite3 "$DB" 2>&1 <<SQL
+.bail on
+.timeout 30000
+CREATE TEMP TABLE _imp($cols);
+.import --csv --schema temp --skip 1 '$file' _imp
+BEGIN IMMEDIATE;
+$older
+$clear
+INSERT OR REPLACE INTO main."$table"($cols) SELECT $selects FROM temp._imp;
+SELECT 'rows written: ' || changes();
+COMMIT;
+SQL
+) || { printf '%s\n' "$out" >> "$OUTPUT"; die "import failed and was undone. Nothing changed in $table."; }
+  printf '%s\n' "$out" >> "$OUTPUT"
+  say "imported into $table. $(printf '%s' "$out" | grep -E '^(left alone|rows written)' | tr '\n' ' ')"
+}
+
+# ---------- copy ----------
+# For testing on a laptop (`npm run data`). Made from the live database while the site runs, then every table not in
+# PUBLIC_TABLES is dropped. Only the gzipped file goes to stdout; messages go to stderr and the log.
+do_copy() {
+  [ $# -eq 0 ] || die "copy takes no words"
+  exec 8>"$STATE/copy.lock"
+  flock -n 8 || die "a copy is already being made; try again in a few minutes"
+  check_disk
+  COPY_DIR=$(mktemp -d "$APP/data/public-copy.XXXXXX")
+  trap 'rm -rf "$COPY_DIR"' EXIT
+  local copy="$COPY_DIR/copy.db" t left
+  sqlite3 -readonly "$DB" ".backup '$copy'" 2>> "$OUTPUT" || die "could not copy the database"
+  for t in $(sqlite3 "$copy" "select name from sqlite_master where type='table' and name not like 'sqlite_%'"); do
+    case "$PUBLIC_TABLES" in *" $t "*) ;; *) sqlite3 "$copy" "DROP TABLE \"$t\"" || die "could not drop $t from the copy" ;; esac
+  done
+  left=$(sqlite3 "$copy" "select name from sqlite_master where type='table' and name not like 'sqlite_%'")
+  for t in $left; do case "$PUBLIC_TABLES" in *" $t "*) ;; *) die "the copy still holds $t; nothing sent" ;; esac; done
+  sqlite3 "$copy" "VACUUM" || die "could not compact the copy"
+  gzip -c "$copy" || die "sending the copy failed"
+  log "public copy sent ($(wc -c < "$copy") bytes before gzip)"
+}
+
+# ---------- status ----------
+do_status() {
+  [ $# -eq 0 ] || die "status takes no words"
+  echo "commit: $(cat "$APP/VERSION" 2>/dev/null || echo 'not recorded yet (no deploy through this script)')"
+  echo "service: $(systemctl is-active "$SERVICE" || true)"
+  echo "disk free: $(df -Ph "$APP/data" | awk 'NR==2 {print $4}')"
+  echo "--- files"
+  find src seed web deploy package.json package-lock.json -type f | sort | while read -r f; do md5sum "$f"; done
+  echo "--- data dates"
+  sqlite3 -readonly "$DB" "select k, substr(v, 1, 40) from meta where k like '%_at' or k like '%updated' or k = 'ctgov_release'"
+  echo "--- row counts"
+  local t
+  for t in trial program trial_program trial_record change; do
+    echo "$t $(sqlite3 -readonly "$DB" "select count(*) from \"$t\"")"
+  done
+  echo "--- recent actions"
+  tail -n 5 "$HISTORY" 2>/dev/null || echo "none yet"
+}
+
+# ---------- the menu ----------
+# Letters, digits, spaces, _ and - only: no shell characters ever reach a command.
+case "$RAW" in
+  *[!a-z0-9_\ -]*) die "unexpected characters in the request" ;;
+  "") die "nothing asked. Choose: code <commit> | regroup [lookup] | import <table> | status | copy" ;;
+esac
+read -r -a WORDS <<< "$RAW"
+ACTION=${WORDS[0]:-}
+ARGS=("${WORDS[@]:1}")
+# The status key: copy when asked for one, otherwise status, whatever else was asked.
+if [ "$ACTION" = read ]; then
+  if [ "${WORDS[1]:-}" = copy ] && [ ${#WORDS[@]} -eq 2 ]; then ACTION=copy; else ACTION=status; fi
+  ARGS=()
+fi
+case "$ACTION" in status|copy) ;; *) log "start" ;; esac
+case "$ACTION" in
+  code) do_code ${ARGS[@]+"${ARGS[@]}"} ;;
+  regroup) do_regroup ${ARGS[@]+"${ARGS[@]}"} ;;
+  import) do_import ${ARGS[@]+"${ARGS[@]}"} ;;
+  status) do_status ${ARGS[@]+"${ARGS[@]}"} ;;
+  copy) do_copy ${ARGS[@]+"${ARGS[@]}"} ;;
+  *) die "unknown action '$ACTION'. Choose: code <commit> | regroup [lookup] | import <table> | status | copy" ;;
+esac

@@ -1,0 +1,91 @@
+target,same_as,why
+CLDN18.2,Claudin 18.2,Claudin 18.2 is CLDN18.2
+GLP-1,GLP-1 receptor,GLP-1 drugs act on the GLP-1 receptor (our rule)
+GLP-1,GLP-1R,GLP-1 drugs act on the GLP-1 receptor (our rule)
+GLP-2,GLP-2 receptor,same rule as GLP-1
+Glucagon,GCGR,glucagon receptor: same rule as GLP-1
+Glucagon,glucagon receptor,same rule as GLP-1
+MET,c-Met,c-Met is the MET protein
+HER2,ERBB2,ERBB2 is the HER2 gene
+HER3,HER3 (ErbB3),ErbB3 is HER3
+EGFR,HER1,HER1 is EGFR
+androgen receptor,AR,AR is the androgen receptor
+4-1BB,CD137,CD137 is 4-1BB
+mesothelin,MSLN,MSLN is mesothelin
+FAP,fibroblast activation protein,FAP stands for it
+FRα,folate receptor alpha,FRα stands for it
+FRα,folate receptor alpha (FRα),FRα stands for it
+PI3Kα,PI3Ka,"a" written for α
+PI3Kα,PI3K alpha,
+HIF-2α,HIF-2a,"a" written for α
+CAIX,carbonic anhydrase IX,CAIX stands for it
+CAIX,CA9,CA9 is the CAIX gene
+SSTR,somatostatin receptor,SSTR stands for it
+SSTR,somatostatin receptor (SSTR),SSTR stands for it
+SSTR2,somatostatin receptor 2,
+SSTR2,somatostatin receptor type 2,
+SSTR2,SST2,
+THR-beta,thyroid hormone receptor beta (THR-beta),
+sGC,soluble guanylate cyclase,sGC stands for it
+sGC,soluble guanylate cyclase (sGC),
+FXR,farnesoid X receptor (FXR),
+IBAT,IBAT (ileal bile acid transporter),
+progranulin,progranulin (PGRN),
+progranulin,Progranulin/GP88 (PGRN),
+MUC16,MUC16 (mucin-16),
+BET,BET (bromodomain extraterminal),
+GAA,acid alpha-glucosidase (GAA),
+IFNAR1,type 1 interferon receptor (IFNAR1),
+B7-H7,B7-H7 (HHLA2),
+myostatin,GDF8 (myostatin),GDF8 is myostatin
+MC2R,MC2R (ACTH receptor),
+KLK2,hK2 (kallikrein-2),
+WRN,WRN helicase,WRN is the Werner helicase
+WRN,Werner helicase,
+ROCK,Rho kinase,ROCK stands for it
+NMDA receptor,NMDA,
+A3AR,A3 adenosine receptor,A3AR stands for it
+Lp(a),lipoprotein(a),Lp(a) stands for it
+MTBR tau,microtubule-binding region (MTBR) tau,
+NKG2D ligands,NKG2DL,
+BCR-ABL1,BCR::ABL1,two ways to write the same fusion
+Factor XI,FXI,
+tumor neoantigens,tumour neoantigens,British spelling
+RSV,respiratory syncytial virus,RSV stands for it
+EBV,Epstein-Barr virus,EBV stands for it
+E. coli,Escherichia coli,
+influenza,influenza virus,
+hepatitis B,HBV,HBV is the hepatitis B virus
+cytomegalovirus,CMV,CMV stands for it
+SARS-CoV-2 spike protein,SARS-CoV-2 spike,
+varicella zoster virus,herpes zoster virus,the same virus
+dystrophin exon 51,dystrophin exon 51 skipping,
+DMD exon 44,DMD exon 44 skipping,
+DMD exon 44,DMD exon 44 (exon skipping),
+DMD exon 45,DMD exon 45 (exon skipping),
+DMD exon 53,dystrophin exon 53,
+KIT,c-Kit,c-Kit is the KIT protein
+SGLT2,SGLT-2,
+IL-23,IL-23R,"IL-23 receptor blockers are grouped with IL-23 (our rule)"
+IL-23,IL-23 receptor,same
+dopamine D1,D1,the dopamine D1 receptor
+dopamine D2,D2,the dopamine D2 receptor
+dopamine D2,D2 receptors,
+dopamine D3,D3,the dopamine D3 receptor
+dopamine D3,D3 receptors,
+dopamine D4,D4,the dopamine D4 receptor
+MUC16,CA125,CA125 is the MUC16 protein
+cereblon,CRBN,CRBN is the cereblon gene
+ED-B fibronectin,EDB-FN,
+ED-B fibronectin,fibronectin ED-B,
+C1q,complement C1q,
+IL-2R,IL-2 receptor,
+M2 muscarinic receptor,muscarinic M2 receptor,
+M3 muscarinic receptor,muscarinic M3 receptor,
+M1 muscarinic receptor,muscarinic M1 receptor,
+FKBP12,FKBP1A,FKBP1A is the FKBP12 gene
+A2BR,adenosine A2B receptor,
+glucosylceramide synthase,GCS,
+glucosylceramide synthase,ceramide glucosyltransferase,the same enzyme
+GIP,GIPR,same rule as GLP-1
+GIP,GIP receptor,same rule as GLP-1

@@ -1,0 +1,11 @@
+{
+  "name": "openlandscape",
+  "owner": { "name": "OpenLandscape", "url": "https://openlandscape.app" },
+  "plugins": [
+    {
+      "name": "openlandscape",
+      "source": "./client",
+      "description": "Drug pipelines, clinical trials and upcoming milestones from ClinicalTrials.gov, openFDA and SEC filings, every fact with its source. MCP connector plus a skill for landscape memos."
+    }
+  ]
+}

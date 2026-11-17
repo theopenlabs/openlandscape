@@ -1,0 +1,210 @@
+/* The card inside Claude and ChatGPT (web/card.js). On top of the website's stylesheet: only what a card needs that a page
+   does not. */
+html,body.card-page{background:transparent}
+body.card-page{margin:0;font-size:14px}
+/* the card never scrolls inside: it grows with its content, so the chat scrolls as usual with the pointer on it.
+   The website's pages show only in the bigger view the person opens, which scrolls on its own. */
+html,body.card-page{overflow:hidden}
+#root.is-full{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:0 20px 20px}
+#root.is-full.big{overflow-y:auto;height:100vh;box-sizing:border-box}
+#root.is-inline{padding:1px}
+
+/* in the chat: the site's box */
+.card{margin:0;container-type:inline-size}
+.card .boxhead{flex-wrap:wrap;row-gap:2px;padding-top:10px;padding-bottom:10px}
+.card .boxhead h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%}
+.card .boxhead .right{margin-left:auto;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.card .foot,.full .foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;row-gap:10px;padding:12px 20px;border-top:1px solid var(--line)}
+.card .foot .src{flex-basis:100%;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.btn{white-space:nowrap}
+.btn svg+span{margin-left:-2px}
+.btn.busy{opacity:.6;cursor:progress}
+.card .stats{margin:0;padding:16px 20px;border-bottom:1px solid var(--line);gap:16px 24px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.card .stats .stat{border:0;padding:0;background:none}
+.card .stats .stat .v{font-size:20px;display:flex;align-items:center;gap:8px}
+.card .stagestrip{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px 20px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted)}
+.card .stagestrip b{color:var(--ink);font-weight:500;margin-right:4px}
+.card .stagestrip .co-n{margin-left:auto}
+.card .chips{display:flex;flex-wrap:wrap;gap:8px;padding:4px 20px 18px}
+.card .chip{text-align:left;white-space:normal;line-height:1.35;padding-top:6px;padding-bottom:6px}
+.card .hint{padding:14px 20px 8px;font-size:13px;color:var(--muted)}
+.card .more,.card tr.more td{color:var(--muted);font-size:13px;text-align:center;padding:10px 20px}
+.card .say,.card .empty,.full .empty{padding:16px 20px;color:var(--ink)}
+.card .empty,.full .empty{color:var(--muted)}
+.card .about{padding:14px 20px}
+.card .about .co{font-size:13px;color:var(--muted)}
+.card .about p{margin:6px 0 0}
+.card .meterbox,.full .meterbox{margin:0;border:0;border-top:1px solid var(--line);border-radius:0;background:var(--paper)}
+.full .meterbox{border:1px solid var(--line);border-radius:12px;margin-top:20px;background:var(--surface)}
+.card .meterbox .msay{font-size:14px}
+.card .box>.meterbox:first-child{border-top:0}
+.card ul.feed .ev,.full ul.feed .ev{white-space:normal}
+.card ul.feed.small li{padding-top:8px;padding-bottom:8px}
+
+/* rows that open something */
+tr[data-act]{cursor:pointer}
+table.land tr[data-act] a{text-decoration:none}
+table.land tr[data-act] a:hover{text-decoration:underline}
+.card table.land{margin:0}
+.card table.land tr[data-i]>td,.card table.land tr[data-i]>td>div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card table.land .dh th:nth-child(1){width:28%}
+.card table.land .dh th:nth-child(2){width:28%}
+.card table.land .dh th:nth-child(3){width:auto}
+tr.busy td{opacity:.55}
+.card table.land .co{margin-top:1px;font-size:13px;color:var(--muted)}
+.card table.land td.cat .d,.card table.land td.cat .sub{display:block;overflow:hidden;text-overflow:ellipsis}
+.card table.land td.cat .sub{margin-top:1px;font-size:13px;color:var(--muted)}
+.card table.land td.n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.card table.trials .tw{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:360px}
+
+/* who runs trials: bars in the stage colours */
+.bars{padding:8px 0}
+.bars .r{display:grid;grid-template-columns:minmax(120px,220px) 1fr 40px;align-items:center;gap:12px;padding:7px 20px;font-size:14px}
+.bars .r span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bars i{display:block;height:8px;border-radius:999px;background:var(--m2)}
+.bars .n{color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;font-size:13px}
+
+/* full screen: the page view */
+.full{max-width:1200px;margin:0 auto}
+.full .topbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;margin:0 -20px 16px;padding:10px 20px;background:var(--paper);border-bottom:1px solid var(--line)}
+.full .phead{margin:0}
+.full .phead h1{font-size:24px;font-weight:600;letter-spacing:-.02em}
+.full .acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.full .stats{margin-top:20px}
+.full .box{margin-top:20px}
+.full .duo{margin-top:20px}
+.full .duo .box{margin-top:0}
+.full .pad{padding:16px 20px}
+.full .pad .small{margin-top:8px}
+.full .srcline{font-size:12px;color:var(--muted);margin:16px 0 0}
+.full table.land .end .rowbtn{color:var(--muted)}
+.full ul.feed.sites li{grid-template-columns:48px minmax(0,1fr)}
+
+/* fit any width: the chat is 360 to 760px wide */
+@container (max-width:600px){
+  .card .boxhead .right{flex-basis:100%;margin-left:0}
+  .card .boxhead:has(svg) .right{margin-left:30px}
+  .card table.land .dh th:nth-child(1){width:37%}
+  .card table.land .dh th:nth-child(2){width:35%}
+  .bars .r{grid-template-columns:minmax(0,1fr) auto;row-gap:6px;padding:8px 20px}
+  .bars .r i{grid-column:1/-1;grid-row:2}
+  .card .stagestrip .co-n{display:none}
+}
+@container (max-width:520px){
+  .card table.land{table-layout:auto}
+  .card table.land .dh th:nth-child(3),.card table.land td.cat,.card table.land td.n{display:none}
+  .card table.land .dh th:nth-child(1){width:auto}
+  .card table.land .dh th:nth-child(2){width:1%;white-space:nowrap}
+  .card table.land td.ph{white-space:nowrap}
+}
+@container (max-width:440px){
+  .card .lg{display:none}
+  .card ul.feed.efeed li{grid-template-columns:72px minmax(0,1fr);gap:12px}
+}
+@media (max-width:900px){
+  .full .stats.four{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:640px){
+  #root.is-full{padding:0 16px 16px}
+  .full .topbar{margin:0 -16px 12px;padding:10px 16px}
+  .full table.land .dh th:nth-child(1){width:36%}
+  .full table.land .dh th:nth-child(4){width:34%}
+  .full table.land td.ph{white-space:nowrap}
+  .full table.land td.cat .d,.full table.land td.cat .sub{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .full table.land td.cat .sub{font-size:13px;color:var(--muted)}
+  .full .duo{grid-template-columns:1fr}
+  .full table.land .dh th:nth-child(2),.full table.land td:nth-child(2),.full table.land .dh th:nth-child(3),.full table.land td:nth-child(3){display:none}
+}
+
+/* one card per answer: the other parts, a row each */
+.card .parts{border-top:1px solid var(--line)}
+.card .parts .phint{padding:12px 20px 4px;font-size:12px;color:var(--muted)}
+.card .parts ul{list-style:none;margin:0;padding:0 0 4px}
+.card .parts li{display:flex;align-items:center;gap:12px;padding:9px 20px;cursor:pointer}
+.card .parts li:hover,.card .parts li:focus-visible{background:var(--tint);outline:0}
+.card .parts li>svg{flex:none;color:var(--muted)}
+.card .parts .pt{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px;white-space:nowrap;overflow:hidden}
+.card .parts .pt b{font-weight:600;flex:none}
+.card .parts .ps{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.card .parts .ps .meter{flex:none}
+.card .parts .pt b .tag{margin-left:8px;font-weight:500}
+.card .parts .go{flex:none;color:var(--muted);display:flex}
+.card .parts .go svg{transform:rotate(-90deg)}
+@container (max-width:520px){
+  .card .parts .pt{flex-direction:column;align-items:flex-start;gap:2px;white-space:normal}
+  .card .parts .ps{display:block}
+  .card .parts .ps .meter{display:inline-flex;margin-right:6px;vertical-align:middle}
+}
+@media (max-width:480px){
+  .full table.land .dh th:nth-child(5),.full table.land td.cat,.full table.land .dh th:nth-child(6),.full table.land td.end{display:none}
+  .full table.land .dh th:nth-child(1){width:52%}
+  .full table.land .dh th:nth-child(4){width:auto}
+  .full .stats .stat .v{flex-wrap:wrap;white-space:normal}
+  .full ul.feed.efeed li{grid-template-columns:64px minmax(0,1fr);gap:12px}
+}
+
+/* compact in the chat: a big card crowds the conversation */
+.card .boxhead{padding:8px 16px;min-height:44px}
+.card .boxhead .right{font-size:12px}
+.card .foot{padding:10px 16px}
+.card .parts .phint{padding:10px 16px 2px}
+.card .parts li{padding:7px 16px}
+.card .drows{list-style:none;margin:0;padding:4px 0}
+.card .drows li{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,.8fr);gap:12px;align-items:center;padding:7px 16px;cursor:pointer;font-size:14px}
+.card .drows li:hover{background:var(--tint)}
+.card .drows .dn{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap;overflow:hidden}
+.card .drows .dn b{font-weight:600;flex:none}
+.card .drows .co{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.card .drows .ds{display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .drows .ds .wh{color:var(--muted);font-size:13px}
+.card .drows .dd{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;color:var(--ink)}
+.card .drows .dd .tag{margin-left:6px}
+.card .drows li.more{display:flex;justify-content:flex-start;gap:4px;color:var(--muted);font-size:13px;padding-top:6px;padding-bottom:6px}
+.card .drows li.more svg{transform:rotate(-90deg);width:14px;height:14px}
+.card .facts{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 16px;border-bottom:1px solid var(--line);font-size:14px;color:var(--muted)}
+.card .facts span{display:inline-flex;align-items:center;gap:6px}
+.card .facts b{color:var(--ink);font-weight:600}
+.card .about{padding:10px 16px}
+.card .bigbtn{margin-left:8px;flex:none;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:0;border-radius:8px;background:none;color:var(--muted);cursor:pointer}
+.card .bigbtn:hover{background:var(--tint);color:var(--ink)}
+#root.is-full.big{border:0;border-radius:0}
+@container (max-width:520px){
+  .card .drows li{grid-template-columns:minmax(0,1fr) auto}
+  .card .drows .dd{display:none}
+  .card .drows .dn{flex-direction:column;align-items:flex-start;gap:0}
+}
+
+/* the top line in words under the title, and our "open bigger" icon on the title's line */
+.card .boxhead .hsub{order:1;flex-basis:100%;margin:0;font-size:13px;color:var(--muted);line-height:1.4}
+.card .boxhead:has(svg) .hsub{padding-left:30px}
+.card .boxhead .bigbtn{margin-left:auto}
+.card .boxhead .right~.bigbtn{margin-left:8px}
+
+/* a row opened in place: the row and its peek read as one block, the same tint, no box inside */
+.card .drows li.open,.card .parts li.open,.card table.land tr.open>td{background:var(--tint)}
+.card li.peekrow,.card li.peekrow:hover{display:block;padding:0 16px 14px;background:var(--tint);cursor:default}
+.card .parts li.peekrow{padding-left:48px}
+.card tr.peekrow>td{background:var(--tint);padding:0 20px 14px;white-space:normal}
+.card .peek{font-size:13px;line-height:1.45;color:var(--ink)}
+.card .peek dl{display:grid;grid-template-columns:96px minmax(0,1fr);gap:4px 12px;margin:0}
+.card .peek dt{color:var(--muted)}
+.card .peek dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.card .peek .dates{display:grid;grid-template-columns:76px minmax(0,1fr);gap:4px 12px}
+.card .peek .dates>span:nth-child(odd){color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.card .peek .dates .tag{margin-left:6px}
+.card .peek p{margin:0}
+.card .peek .pmore{margin-top:6px;color:var(--muted)}
+.card .peek .pb{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.card .peek .pb .btn{background:var(--surface)}
+.card .parts li.open .go svg{transform:none}
+.card .parts ul{padding-bottom:0}
+.card div.more[data-act]{cursor:pointer}
+.card div.more[data-act]:hover{color:var(--ink)}
+@container (max-width:440px){
+  .card .peek dl{grid-template-columns:84px minmax(0,1fr)}
+  .card .parts li.peekrow{padding-left:16px}
+}
+/* no white strip between an opened first or last row and the lines around it: the list's own spacing moves into its rows */
+.card .drows{padding:0}
+.card .drows>li:first-child{padding-top:11px}
+.card .drows>li:last-child{padding-bottom:11px}

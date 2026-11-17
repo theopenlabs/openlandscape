@@ -1,0 +1,107 @@
+fda_class,target
+Interleukin-23 Antagonist,IL-23
+Interleukin-12 Antagonist,IL-12
+Interleukin-13 Antagonist,IL-13
+Interleukin-17A Antagonist,IL-17A
+Interleukin-17 Receptor A Antagonist,IL-17RA
+Interleukin-6 Receptor Antagonist,IL-6R
+Interleukin-5 Antagonist,IL-5
+Interleukin-5 Receptor alpha-directed Cytolytic Antibody,IL-5 receptor alpha
+Interleukin-4 Receptor alpha Antagonist,IL-4Rα
+Interleukin-31 Receptor alpha Antagonist,IL-31RA
+Interleukin-36 Receptor Antagonist,IL-36R
+Interleukin-1 Receptor Antagonist,IL-1 receptor
+Thymic Stromal Lymphopoietin Blocker,TSLP
+Tumor Necrosis Factor Blocker,TNF
+Janus Kinase Inhibitor,JAK
+Tyrosine Kinase 2 Inhibitor,TYK2
+Programmed Death Receptor-1 Blocking Antibody,PD-1
+Programmed Death Ligand-1 Blocker,PD-L1
+CTLA-4-directed Blocking Antibody,CTLA-4
+CD20-directed Cytolytic Antibody,CD20
+Bispecific CD20-directed CD3 T Cell Engager,CD20 + CD3
+CD19-directed Chimeric Antigen Receptor,CD19
+CD19-directed Cytolytic Antibody,CD19
+CD22-directed Immunoconjugate,CD22
+CD30-directed Immunoconjugate,CD30
+CD38-directed Cytolytic Antibody,CD38
+CD123 Interaction,CD123
+CD3-directed Antibody,CD3
+SLAMF7-directed Immunostimulatory Antibody,SLAMF7
+Bispecific gp100 Peptide-HLA-directed CD3 T Cell Engager,gp100 + CD3
+Claudin 18.2-directed Cytolytic Antibody,CLDN18.2
+Glycolipid Disialoganglioside-directed Antibody,GD2
+HER2/neu Receptor Antagonist,HER2
+Bispecific HER2-directed Antibody,HER2
+Epidermal Growth Factor Receptor Antagonist,EGFR
+Insulin-like Growth Factor-1 Receptor Inhibitor,IGF-1R
+Colony Stimulating Factor-1 Receptor Blocker,CSF-1R
+Vascular Endothelial Growth Factor Inhibitor,VEGF
+Vascular Endothelial Growth Factor Receptor 2 Antagonist,VEGFR2
+Poly(ADP-Ribose) Polymerase Inhibitor,PARP
+Histone Deacetylase Inhibitor,HDAC
+Menin Inhibitor,menin
+BCL-2 Inhibitor,Bcl-2
+Isocitrate Dehydrogenase 1 Inhibitor,IDH1
+Isocitrate Dehydrogenase 2 Inhibitor,IDH2
+Estrogen Receptor Antagonist,estrogen receptor
+Androgen Receptor Inhibitor,androgen receptor
+Cytochrome P450 17A1 Inhibitor,CYP17A1
+Gamma Secretase Inhibitor,gamma secretase
+Oligonucleotide Telomerase Inhibitor,telomerase
+GLP-1 Receptor Agonist,GLP-1
+GLP-2 Analog,GLP-2
+Glucose-dependent Insulinotropic Polypeptide Receptor Agonist,GIP
+Melanocortin 4 Receptor Agonist,MC4R
+Sodium-Glucose Cotransporter 2 Inhibitor,SGLT2
+PCSK9 Inhibitor,PCSK9
+APOC-III-directed RNA Interaction,APOC3
+Adenosine Triphosphate-Citrate Lyase Inhibitor,ATP citrate lyase
+HMG-CoA Reductase Inhibitor,HMG-CoA reductase
+Thyroid Hormone Receptor beta Agonist,THR-beta
+Ileal Bile Acid Transporter Inhibitor,IBAT
+Sodium-Hydrogen Exchanger 3 Inhibitor,NHE3
+Guanylate Cyclase-C Agonist,guanylate cyclase-C
+Soluble Guanylate Cyclase Stimulator,sGC
+Cardiac Myosin Inhibitor,cardiac myosin
+Transthyretin Stabilizer,TTR
+Transthyretin-directed RNA Interaction,TTR
+Survival Motor Neuron-2-directed RNA Interaction,SMN2
+Antithrombin-directed RNA Interaction,antithrombin
+Tissue Factor Pathway Inhibitor Antagonist,TFPI
+Plasma Kallikrein Inhibitor,plasma kallikrein
+Complement C5 Inhibitor,complement C5
+Complement 5a Receptor Antagonist,C5aR
+Complement Factor B Inhibitor,complement factor B
+Complement Factor D Inhibitor,complement factor D
+Neonatal Fc Receptor Blocker,FcRn
+B Lymphocyte Stimulator-specific Inhibitor,BAFF
+Lymphocyte Function-Associated Antigen-1 Antagonist,LFA-1
+RANK Ligand Inhibitor,RANKL
+Thrombopoietin Receptor Agonist,thrombopoietin receptor
+Calcium-sensing Receptor Agonist,CaSR
+Type I Interferon Receptor Antagonist,type I interferon receptor
+Amyloid Beta-directed Antibody,amyloid beta
+Calcitonin Gene-related Peptide Receptor Antagonist,CGRP receptor
+Calcitonin Gene-related Peptide Antagonist,CGRP
+Sphingosine 1-phosphate Receptor Modulator,S1PR
+Orexin Receptor Antagonist,orexin receptor
+Neurokinin 3 Receptor Antagonist,NK3R
+Melatonin Receptor Agonist,melatonin receptor
+Kappa Opioid Receptor Agonist,kappa opioid receptor
+mu-Opioid Receptor Agonist,mu opioid receptor
+Histamine-1 Receptor Antagonist,H1 receptor
+Histamine-3 Receptor Antagonist/Inverse Agonist,H3 receptor
+Vasopressin V2 Receptor Antagonist,vasopressin V2 receptor
+Nonsteroidal Mineralocorticoid-Receptor Antagonist,mineralocorticoid receptor
+Gonadotropin Releasing Hormone Receptor Antagonist,GnRH receptor
+Phosphodiesterase 4 Inhibitor,PDE4
+Phosphodiesterase 3 Inhibitor,PDE3
+CXC Chemokine Receptor 4 Antagonist,CXCR4
+CCR5 Co-receptor Antagonist,CCR5
+Aryl Hydrocarbon Receptor Agonist,AhR
+Cystic Fibrosis Transmembrane Conductance Regulator Potentiator,CFTR
+Human Immunodeficiency Virus Integrase Strand Transfer Inhibitor,HIV integrase
+Human Immunodeficiency Virus 1 Capsid Inhibitor,HIV capsid
+Respiratory Syncytial Virus Anti-F Protein Monoclonal Antibody,RSV F protein
+Anthrax Protective Antigen-directed Antibody,anthrax protective antigen

@@ -1,0 +1,8 @@
+{
+  "name": "openlandscape",
+  "version": "0.1.0",
+  "description": "Drug pipelines, clinical trials and upcoming milestones, every fact with its source. Adds the OpenLandscape MCP connector (sign in in the browser) and a skill for landscape memos.",
+  "author": { "name": "OpenLandscape", "url": "https://openlandscape.app" },
+  "homepage": "https://openlandscape.app/connect",
+  "license": "MIT"
+}

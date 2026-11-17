@@ -1,0 +1,13 @@
+parent,child,note
+Psoriasis,"Arthritis, Psoriatic",A joint disease. Someone searching psoriasis wants the skin disease; psoriatic arthritis has its own search.
+Hypertension,"Hypertension, Pulmonary",High pressure in the lung arteries: a different disease with different drugs.
+Hypertension,"Hypertension, Portal",Liver disease.
+Hypertension,"Ocular Hypertension",Eye pressure (glaucoma).
+Hypertension,"Intracranial Hypertension",Pressure inside the skull.
+"Arthritis, Rheumatoid",Sjogren's Syndrome,Its own autoimmune disease.
+"Arthritis, Rheumatoid","Arthritis, Juvenile",Juvenile arthritis is not rheumatoid arthritis.
+Dementia,Huntington Disease,A movement disorder; dementia is one of its late effects.
+Pain,Migraine Disorders,Migraine has its own search and its own drugs.
+Pain,"Angina Pectoris",A heart disease.
+Multiple Sclerosis,Neuromyelitis Optica,A different autoimmune disease (NMOSD) with its own drugs; the registry files it under MS.
+Macular Degeneration,Macular Edema,Swelling of the retina (mostly diabetic); not the age-related disease people search for.

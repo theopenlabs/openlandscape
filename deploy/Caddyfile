@@ -1,0 +1,11 @@
+# Caddy gets and renews the HTTPS certificates by itself. Both addresses go to the same app,
+# which sends each page to the right one (public site vs dashboard).
+openlandscape.app, dashboard.openlandscape.app {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+# www forwards to the main address
+www.openlandscape.app {
+	redir https://openlandscape.app{uri} permanent
+}
