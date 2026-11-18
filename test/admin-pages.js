@@ -21,6 +21,7 @@ ok(country('10.0.0.1') === '' && country('::1') === '' && country('nonsense') ==
 const CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
 const db = getDb();
 V.recordView({ p: '/pricing', r: 'https://www.linkedin.com/' }, { ip: '81.2.69.142', ua: CHROME, host: 'openlandscape.app' });
+V.recordView({ p: '/', v: 'li-dm' }, { ip: '81.2.69.143', ua: CHROME, host: 'openlandscape.app' });
 const v = db.prepare('SELECT * FROM page_view').get();
 ok(v.country === 'GB' && !JSON.stringify(v).includes('81.2.69.142'), 'a counted page keeps the country, not the address');
 
@@ -42,6 +43,7 @@ run("INSERT INTO job_run (name, started_at, finished_at, ok, code, mailed) VALUE
 run("INSERT INTO match_candidate (type, left_id, right_id, score) VALUES ('study', 'a', 'b', 0.8)");
 run("INSERT INTO meta (k, v) VALUES ('trials_loaded_at', '2026-11-10T14:06:43Z')");
 run("INSERT INTO mail_fail (user_id, email, kind, subject, error) VALUES (?, 'payer@x.test', 'welcome', 'Welcome', 'Email failed: 422 mailbox full')", payer);
+run("INSERT INTO user (email, plan, first_ref, first_page) VALUES ('tagged@x.test', 'free', 'via:li-dm', '/')");
 const leftId = run("INSERT INTO user (email, plan, came_from, first_ref) VALUES ('left@x.test', 'free', 'pricing', 'google.com')").lastInsertRowid;
 run("INSERT INTO usage (user_id, kind, detail) VALUES (?, 'checkout', '/pricing'), (?, 'landscape', 'obesity')", leftId, leftId);
 const nearId = run("INSERT INTO user (email, plan) VALUES ('near@x.test', 'free')").lastInsertRowid;
@@ -62,12 +64,12 @@ const asAdmin = path => get(path, { headers: { cookie: `op_session=${session}` }
 try {
   const pages = {
     '/admin': ['Today', 'Needs you', 'Founding places', 'Data update failing: EMA decisions', 'Data update failing</p>', 'Do you cover &lt;b&gt;China&lt;/b&gt;?', 'Myasthenia gravis', 'wait@x.test',
-      'h late', 'Delivered', 'Open review', 'Payment failed', 'Last 14 days', 'mailto:ask@x.test', 'dashboard.stripe.com/customers/cus_T1', '1 email did not send since yesterday', 'Welcome to payer@x.test', 'See Health',
+      'h late', 'Delivered', 'Payment failed', 'name="how" value="ignore"', 'Test account<small>', 'Last 14 days', 'mailto:ask@x.test', 'dashboard.stripe.com/customers/cus_T1', '1 email did not send since yesterday', 'Welcome to payer@x.test', 'See Health',
       'Left at checkout', 'left@x.test</a> pressed Choose Solo today and did not pay.', 'Joined today through Google. Used Obesity.', 'Near the allowance', 'near@x.test</a> reached the 500 free drugs', 'Also opened checkout today', 'mailto:left@x.test?subject=Solo'],
-    '/admin/people': ['payer@x.test', 'Solo, early customer', 'from google.com', 'payment failed', 'Find by email'],
+    '/admin/people': ['payer@x.test', 'Solo, early customer', 'from google.com', 'from link tagged li-dm', 'payment failed', 'Find by email'],
     '/admin/money': ['$49', 'Founding places', 'Payment failed', 'dashboard.stripe.com/customers/cus_T1'],
-    '/admin/growth': ['Visited', 'Signed up', 'Used it', 'Came back', 'Checkout', 'Paid', 'visit brought', 'New people this week', 'payer@x.test', 'Drug: Tirzepatide',
-      'Visits each day', 'Where they came from', 'LinkedIn', 'Where they landed', 'Pricing', 'United Kingdom', 'Phone or computer', 'Emails and what came of them', 'Monday email', 'Gone quiet', 'data-s="'],
+    '/admin/growth': ['Visited', 'Signed up', 'Used it', 'Came back', 'Checkout', 'Paid', 'visits brought', 'New people this week', 'payer@x.test', 'Drug: Tirzepatide',
+      'Visits each day', 'Where they came from', 'LinkedIn', 'Link tagged li-dm', 'tagged@x.test', 'Where they landed', 'Pricing', 'United Kingdom', 'Phone or computer', 'Emails and what came of them', 'Monday email', 'Gone quiet', 'data-s="'],
     '/admin/interest': ['Searched and found nothing', 'zzqx', 'not sorted yet', 'Most active people', 'payer@x.test', 'Landscapes opened', 'NASH', 'Drugs looked at',
       'Searches that found something', 'obesity', 'What AI apps asked', '<details class="bd">'],
     '/admin/health': ['things need a look', 'EMA decisions failing', 'Failed (exit code 1)', '1 email did not send', 'mailbox full', 'Welcome', 'Monday email',
@@ -126,6 +128,31 @@ try {
   run("INSERT INTO usage (user_id, kind, detail, at) VALUES (?, 'checkout', '/pricing', datetime('now','+1 minute'))", leftId);
   ok((await (await asAdmin('/admin')).text()).includes('left@x.test</a> pressed Choose Solo 2 times'), 'pressing Choose Solo again after Done: back on Needs you');
   ok((await post('/admin/done/checkout/99999', {})).status === 404, 'done on someone who does not exist: Not found');
+
+  // ---- Ignore (every row's menu), one row per person, test accounts, Review ----
+  const req = row("SELECT id FROM area_request WHERE page='landscape'").id;
+  r = await post(`/admin/done/request/${req}`, { how: 'ignore' });
+  const t3 = await (await asAdmin('/admin?done=1')).text();
+  ok(r.headers.get('location') === '/admin?ok=ignored' && !t3.includes('"Myasthenia gravis"') && row('SELECT done_note FROM area_request WHERE id=?', req).done_note === 'Ignored' && t3.includes('Ignored'), 'Ignore: gone from Needs you, shown as Ignored under Done lately');
+  run("INSERT INTO area_request (email, area, role, page) VALUES ('left@x.test', 'Team', 'BD', 'team-waitlist')");
+  const t4 = await (await asAdmin('/admin')).text();
+  ok(t4.split('left@x.test</a>').length === 2 && t4.includes('Also on the Team waitlist'), 'someone who left checkout and is on the Team waitlist: one row that says both');
+  await post(`/admin/done/checkout/${leftId}`, { also: String(row("SELECT id FROM area_request WHERE email='left@x.test'").id) });
+  ok(row("SELECT done_at FROM area_request WHERE email='left@x.test'").done_at, 'Done on that row handles the waitlist request too');
+  run("INSERT INTO usage (user_id, kind, detail, at) VALUES (?, 'checkout', '/pricing', datetime('now','+2 minutes'))", leftId);
+  ok((await asAdmin('/admin').then(x => x.text())).includes('left@x.test</a> pressed'), 'back after pressing Choose Solo again');
+  r = await post(`/admin/people/${leftId}/test`, { test: '1' });
+  const t5 = await (await asAdmin('/admin')).text();
+  ok(r.headers.get('location') === '/admin?ok=test' && row('SELECT test FROM user WHERE id=?', leftId).test === 1 && !t5.includes('left@x.test</a> pressed') && t5.includes('1 test account left out'), 'Test account: gone from Today, named in one grey line');
+  const p5 = await (await asAdmin(`/admin/people/${leftId}`)).text();
+  ok(p5.includes('Not a test account') && p5.includes('left out of Today and every number'), 'their page says so, with the way back');
+  r = await post(`/admin/people/${leftId}/test`, { test: '0', back: 'person' });
+  ok(r.headers.get('location') === `/admin/people/${leftId}?ok=untest` && row('SELECT test FROM user WHERE id=?', leftId).test === 0, 'Not a test account: back, from their page');
+  ok(!t5.includes('>Review<') || !t5.includes('same-trial'), 'Today does not count same-trial pairs (they never change what customers see)');
+  const rv = await (await asAdmin('/admin/review')).text();
+  ok(rv.includes('class="side"') && rv.includes('aria-current="page"') && rv.includes('Possibly the same trial') && rv.includes('Twice a week'), 'Review is a page of the admin, with the sidebar, how often, and the same-trial pairs under Not urgent');
+  r = await post('/admin/done/review/0', { how: 'ignore' });
+  ok(r.headers.get('location') === '/admin?ok=ignored', 'Ignore on the Review row');
 
   r = await post(`/admin/people/${other}/solo`, { until: '2099-01-01' });
   ok(r.headers.get('location') === `/admin/people/${other}?err=baddate` && row('SELECT plan FROM user WHERE id=?', other).plan === 'free', 'Solo free: a day more than two years away is refused');

@@ -2,7 +2,9 @@
 # The fixed menu of things a deploy key may do on the server. Installed root-owned at /usr/local/sbin/ol-deploy.
 # Runs as the app's own user, never as root. Called through the deploy user's forced SSH command,
 # so the whole request arrives as one argument.
-#   code <40-character commit>   put a commit that is on main live; goes back by itself if the site fails its test; then regroups
+#   code <40-character commit> [packages]
+#                                put a commit that is on main live; goes back by itself if the site fails its test; then regroups.
+#                                If package.json or package-lock.json differ from live, it refuses unless "packages" is added.
 #   regroup [lookup]             re-group the drugs from the data on the server, then refresh FDA labels ("lookup" also asks the drug lists about new names)
 #   import <table>               load rows copied from a local database: gzipped CSV with a header row, on stdin
 #   status                       live commit, file checksums, data dates, row counts and recent actions
@@ -127,7 +129,9 @@ install_code() {
   local commit=$1 packages=$2
   rsync -rlpt --checksum --delete "${EXCLUDES[@]}" --exclude /VERSION "$STATE/new/" "$APP/" >> "$OUTPUT" 2>&1 || return 1
   if [ "$packages" = changed ]; then
-    npm ci --omit=dev >> "$OUTPUT" 2>&1 || return 1
+    # No package may run code while installing, except better-sqlite3, which fetches or builds its database driver.
+    npm ci --omit=dev --ignore-scripts >> "$OUTPUT" 2>&1 || return 1
+    npm rebuild better-sqlite3 >> "$OUTPUT" 2>&1 || return 1
   fi
   echo "$commit" > "$APP/VERSION"
   restart_and_test && [ "$FORCE_FAILED_TEST" = no ]
@@ -143,16 +147,21 @@ roll_back() {
 }
 
 do_code() {
-  local commit=${1:-} packages=same
+  local commit=${1:-} allow=${2:-} packages=same
   case "$commit" in
     *[!0-9a-f]*|"") die "code needs a 40-character commit" ;;
   esac
   [ "${#commit}" -eq 40 ] || die "code needs a 40-character commit"
-  [ $# -eq 1 ] || die "code takes one commit"
+  [ $# -le 2 ] || die "code takes one commit, and optionally the word packages"
+  [ -z "$allow" ] || [ "$allow" = packages ] || die "after the commit, code accepts only the word packages"
   take_lock
   fetch_commit "$commit"
+  cmp -s "$STATE/new/package-lock.json" "$APP/package-lock.json" && cmp -s "$STATE/new/package.json" "$APP/package.json" || packages=changed
+  # A package change is the one way new outside code reaches the server, so it needs a person to say yes on purpose.
+  if [ "$packages" = changed ] && [ "$allow" != packages ]; then
+    die "package.json or package-lock.json differ from live ($(cat "$APP/VERSION" 2>/dev/null || echo unknown)). Nothing was changed. Review: git diff <live> $commit -- package.json package-lock.json. Then deploy with: code $commit packages"
+  fi
   backup_db deploy
-  cmp -s "$STATE/new/package-lock.json" "$APP/package-lock.json" || packages=changed
 
   rm -rf "$STATE/previous"
   mkdir -p "$STATE/previous/code"

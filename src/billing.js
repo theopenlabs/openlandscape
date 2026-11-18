@@ -53,7 +53,9 @@ export async function createCheckout({ plan, user, origin, then = '' }) {
     // Solo starts at once, so the buyer agrees that the 14-day refund ends after a heavy export.
     consent_collection: { terms_of_service: 'required' },
     custom_text: { terms_of_service_acceptance: { message: `I agree to the [Terms](${site(origin)}/terms). Solo starts now, so the 14-day refund ends once I download a list or open ${HEAVY.drugs.toLocaleString('en-US')} different drugs.` } },
-    metadata: { plan, user_id: String(user.id) },
+    // user_email: the account's address when it paid. Account numbers can be reused after a deletion, so a late payment
+    // (a bank transfer clearing days later) goes only to the account it was for (recordCheckout).
+    metadata: { plan, user_id: String(user.id), user_email: user.email },
     success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}${then ? `&follow=${encodeURIComponent(then)}` : ''}`,
     cancel_url: `${origin}/pricing?cancelled=1`,
   });
@@ -73,6 +75,8 @@ export function recordCheckout(cs) {
   let uid = null;
   if (fresh && PLANS[plan]?.mode === 'subscription') {
     uid = cs.metadata?.user_id ? +cs.metadata.user_id : db.prepare('SELECT id FROM user WHERE email=?').pluck().get(email);
+    // The account that number now belongs to is another person's (the payer's account was deleted): nobody gets Solo.
+    if (uid && cs.metadata?.user_email && db.prepare('SELECT email FROM user WHERE id=?').pluck().get(uid) !== cs.metadata.user_email) uid = null;
     if (uid) db.prepare('UPDATE user SET plan=?, stripe_customer=?, solo_until=NULL WHERE id=?').run(PLANS[plan].plan, cs.customer, uid);   // paying ends a free Solo given by hand
   }
   return { plan: PLANS[plan]?.plan || plan, email, uid };
@@ -108,6 +112,8 @@ export async function afterPaid(cs, record) {
     const id = typeof cs.subscription === 'string' ? cs.subscription : cs.subscription?.id;
     if (!record?.uid || !id) return;
     const sub = await stripeClient().subscriptions.retrieve(id, { expand: ['default_payment_method'] });
+    // A late or repeated Stripe message about a subscription that has since ended: Solo is not given back.
+    if (ENDED.has(sub.status)) { getDb().prepare("UPDATE user SET plan='free' WHERE id=?").run(record.uid); return; }
     planFromSub('id', record.uid, sub);
     noteCard(record.uid, sub.default_payment_method?.card?.fingerprint || null);
   } catch (e) { console.error('card check', e.message); }
@@ -127,7 +133,9 @@ export async function handleWebhook(rawBody, signature, onCheckout = () => {}) {
     getDb().prepare("UPDATE user SET plan='free' WHERE stripe_customer=?").run(o.customer);
     noteTrouble(event, 'ended', o, `Solo ended for {email} (${o.status || 'cancelled'}). The account is back on Free.`);
   } else if (event.type === 'customer.subscription.updated' && o.status === 'active') {
-    planFromSub('stripe_customer', o.customer, o);
+    // The plan from the subscription as it is now, not as this message says: Stripe re-sends late messages, and an old
+    // "active" arriving after a cancel must not bring Solo back.
+    planFromSub('stripe_customer', o.customer, await s.subscriptions.retrieve(o.id));
     const was = event.data.previous_attributes || {};
     if ((o.cancel_at_period_end || o.cancel_at) && (('cancel_at_period_end' in was && !was.cancel_at_period_end) || ('cancel_at' in was && !was.cancel_at)))
       noteTrouble(event, 'cancel_planned', o, `{email} cancelled Solo. They keep it until ${day(o.cancel_at || o.current_period_end || o.items?.data?.[0]?.current_period_end)}, then the account goes back to Free.`);

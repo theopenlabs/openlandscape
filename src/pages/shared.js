@@ -38,9 +38,19 @@ const shareTags = ({ title, desc, path, image }) => {
 <meta property="og:type" content="website"><meta property="og:site_name" content="${BRAND}"><meta property="og:title" content="${t}">${desc ? `<meta property="og:description" content="${esc(desc)}">` : ''}
 <meta property="og:image" content="${esc(img)}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta name="twitter:card" content="summary_large_image">`;
 };
-export function layout({ title, body, user, desc = '', active = '', noindex = false, side = '', bare = false, path = '', image = '' }) {
+// Structured data (JSON-LD, step 20): what a page is, in schema.org's words, for Google and AI tools. Only on pages they may
+// list; `<` is escaped so text from the data can never close the script tag.
+export const ORG_ID = () => `${SITE_URL()}/#org`;
+export const orgLd = () => ({ '@type': 'Organization', '@id': ORG_ID(), name: BRAND, legalName: 'Feynman OÜ', parentOrganization: { '@type': 'Organization', name: 'OpenLabs', legalName: 'Feynman OÜ' }, url: SITE_URL() + '/',
+  logo: `${SITE_URL()}/static/apple-touch-icon.png`, ...(CONTACT ? { email: CONTACT } : {}),
+  sameAs: [REPO, 'https://claude.ai/directory/openlandscape'].filter(Boolean) });
+export const orgRef = () => ({ '@type': 'Organization', '@id': ORG_ID(), name: BRAND, url: SITE_URL() + '/' });
+export const crumbsLd = list => ({ '@type': 'BreadcrumbList', itemListElement: list.map(([name, path], i) => ({ '@type': 'ListItem', position: i + 1, name, item: SITE_URL() + path })) });
+export const siteUrl = SITE_URL;
+const ldTag = ld => (ld?.length ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': ld }).replace(/</g, '\\u003c')}</script>` : '');
+export function layout({ title, body, user, desc = '', active = '', noindex = false, side = '', bare = false, path = '', image = '', ld = null }) {
   return versioned(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${noindex ? '<meta name="robots" content="noindex">' : shareTags({ title, desc, path, image })}
+<title>${esc(title)}</title><meta name="description" content="${esc(desc)}">${noindex ? '<meta name="robots" content="noindex">' : shareTags({ title, desc, path, image }) + ldTag(ld)}
 <meta name="theme-color" content="#FAF9F7" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#171614" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="icon" href="/static/favicon.ico" sizes="32x32"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png"><link rel="manifest" href="/static/site.webmanifest">
 <script>(function(){var m=document.cookie.match(/(?:^|; )ol_theme=(light|dark)/);if(m)document.documentElement.dataset.theme=m[1]})()</script>
@@ -103,9 +113,9 @@ export function footer(extra = '') {
   const col = (h, links) => `<nav class="fcol" aria-label="${h}"><h2>${h}</h2>${links.map(([href, t]) => `<a href="${esc(href)}">${t}</a>`).join('')}</nav>`;
   return `<footer class="site"><div class="wrap">
 <div class="fbrand"><a class="logo" href="${esc(siteHome())}">${LOGO}${BRAND}</a><p>Data from ClinicalTrials.gov, the EU trials register, FDA, EMA and SEC filings.</p></div>
-${col('Product', [['/landscapes', 'Landscapes'], ['/connect', 'Connect your AI'], ['/pricing', 'Pricing'], ['/how-we-check', 'How we check']])}
+${col('Product', [['/landscapes', 'Landscapes'], ['/diseases', 'All diseases'], ['/connect', 'Connect your AI'], ['/pricing', 'Pricing'], ['/how-we-check', 'How we check']])}
 ${col('Landscapes', SHOWCASE_LINKS.map(([s, t]) => ['/landscapes/' + s, t]))}
-${col('Company', [...(REPO ? [[REPO, 'GitHub']] : []), ...(CONTACT ? [[`mailto:${CONTACT}?subject=Wrong%20row`, 'Report a wrong row']] : []), ['/talk', 'Talk to us'], ['/privacy', 'Privacy'], ['/terms', 'Terms']])}
+${col('Company', [...(REPO ? [[REPO, 'GitHub']] : []), ...(CONTACT ? [[`mailto:${CONTACT}?subject=Wrong%20row`, 'Report a wrong row']] : []), ['/about', 'About'], ['/ai', 'For AI tools'], ['/talk', 'Talk to us'], ['/privacy', 'Privacy'], ['/terms', 'Terms']])}
 <div class="fbar"><p class="fcopy">© ${new Date().getFullYear()} ${BRAND}<span class="dot" aria-hidden="true">·</span>${REPO ? `<a class="fgh" href="${esc(REPO)}">${GH}Open source on GitHub</a>` : `<span class="fgh">${GH}Open source</span>`}</p>${themeSwitch()}</div>
 ${extra}</div></footer>`;
 }

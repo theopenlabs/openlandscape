@@ -529,6 +529,11 @@ table.land.nums th:nth-child(n+2),table.land.nums td:nth-child(n+2){width:22%;fo
 .breakdown .boxnote{border-bottom:1px solid var(--line)}
 .breakdown .boxfoot a{color:inherit;text-decoration:none}
 .breakdown .boxfoot a:hover{text-decoration:underline}
+/* A plain name beside the registry's term (step 18): "Breast Cancer · Breast Neoplasms"; on a phone the term on its own line. */
+.breakdown h1 .regterm{font-weight:400;color:var(--muted)}
+.breakdown h1 .regterm::before{content:"· "}
+@media (max-width:560px){.breakdown h1 .regterm{display:block;font-size:15px;margin-top:2px}.breakdown h1 .regterm::before{content:"Registry term: "}}
+.breakdown .capnote{margin:0;padding:12px 20px;border-top:1px solid var(--line);color:var(--muted)}
 .breakdown .wordings{display:flex;flex-wrap:wrap;gap:8px 20px;margin:0;padding:14px 20px}
 .breakdown .wordings .w{white-space:nowrap}
 .breakdown .wordings .rest{display:contents}
@@ -1415,6 +1420,13 @@ ol.pfeed b{font-weight:600}
 .signin .devline{margin:16px 0 0;font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:10px}
 .signin form.pair{display:flex;gap:8px}
 .signin form.pair .btn{flex:1;margin:0}
+/* Approve screen: where Allow sends you, large under the heading; a yellow warning for an app that borrows Claude's or ChatGPT's name. */
+.signin .cshost{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:18px;color:var(--ink)}
+.signin .cshost svg{flex:none;color:var(--muted)}
+.signin .cshost img,.signin .cshost svg[aria-hidden]{width:18px;height:18px;color:var(--ink)}
+.signin .cshost .mono{overflow-wrap:anywhere}
+.signin .cswarn{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:var(--soon-soft);color:var(--soon);font-size:14px;line-height:1.5}
+.signin .cswarn b{font-weight:600}
 /* The sign-in box (design pass, screen 4; follow-up 12 Nov): one 480px box, the page's own or over a page for Follow. Title
    24/600 and one grey line; our own Google button, drawn like the rest of the box in light and dark; errors in red inside the
    box. Every line fits on one line at 375 (only an email or a name too long for the width wraps). The page centres the box in
@@ -1833,6 +1845,7 @@ dialog.signbox:has(.fchoice){width:680px}
 @media (max-width:560px){.themesw button{width:36px;height:32px}}
 .themesw button[aria-checked="true"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line),0 1px 2px rgb(0 0 0 / .08)}
 .acct-menu .themerow .it{cursor:default}
+.side-foot .themerow{cursor:default}.side-foot .themerow:hover{background:none}
 /* The account menu's rows a little roomier than the sidebar's, the line before Sign out with the same room above and below. */
 @media (min-width:821px){.acct-menu .it{min-height:38px}.acct-menu .sep{margin-top:5px;padding-top:5px}}
 /* Dark: the chosen one a shade lighter than the pill, so it reads as raised there too. */
@@ -1853,6 +1866,57 @@ dialog.signbox:has(.fchoice){width:680px}
 .adm ul.feed li>*{white-space:normal;overflow-wrap:anywhere}
 .adm .ra{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;margin:0}
 .adm .ra .input{min-height:32px;font-size:13px;width:180px}
+/* Today's rows: one button and a "⋯" menu (Write or Reply, Add a note, Ignore, Test account); the note field opens from the menu */
+.adm .nact{flex-wrap:nowrap}
+.adm .nact .btn svg{margin-right:4px}
+.adm .nact .input[hidden]{display:none}
+.adm .box:has(details.pm){overflow:visible}   /* the menu may reach past the box */
+.adm .pm{position:relative}
+.adm .pm>summary{list-style:none}.adm .pm>summary::-webkit-details-marker{display:none}
+.adm .pm-btn{display:grid;place-items:center;width:32px;height:32px;border:1px solid transparent;border-radius:8px;color:var(--muted);cursor:pointer}
+.adm .pm-btn:hover,.adm .pm[open] .pm-btn{border-color:var(--line);color:var(--ink)}
+.adm .pm-list{position:absolute;right:0;top:36px;z-index:20;min-width:250px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 8px 24px rgb(0 0 0 / .16);text-align:left}
+.adm .pm-list>a,.adm .pm-list>button{display:block;width:100%;padding:8px 10px;border:0;border-radius:6px;background:none;text-align:left;font:14px/1.35 var(--body);color:var(--ink);text-decoration:none;cursor:pointer}
+.adm .pm-list>a:hover,.adm .pm-list>button:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.adm .pm-list small{display:block;font-size:12px;color:var(--muted);margin-top:1px}
+.adm .nfoot{margin:0;padding:12px 20px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.adm .nfoot a{color:var(--muted)}
+/* Review (src/review.js): a suggestion per item, grouped; teal = looks new, amber = your call, grey = looks like old news */
+.adm .rv-how{margin-top:20px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:14px;line-height:21px;color:var(--muted)}
+.adm .rv-how b{color:var(--ink);font-weight:600}
+.adm .rv-sum{display:flex;flex-wrap:wrap;gap:8px 18px;margin:20px 0 0;font-size:14px;color:var(--muted)}
+.adm .rv-sum b{color:var(--ink);font-weight:600}
+.adm .rv-sum .ok,.adm .rv.ok,.adm .tag.ok{--c:var(--fresh)}.adm .rv-sum .mid,.adm .rv.mid,.adm .tag.mid{--c:var(--soon)}.adm .rv-sum .old,.adm .rv.old,.adm .tag.old{--c:var(--muted)}
+.adm .rv-sum span[class]::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px;background:var(--c)}
+.adm .rv-grp{margin-top:36px}
+.adm .rv-gh{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.adm .rv-gh h2{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
+.adm .rv-gh .count{font-weight:400;color:var(--muted);margin-left:8px}
+.adm .rv-gs{margin:4px 0 0;font-size:14px;color:var(--muted)}
+.adm .rv{margin-top:12px;padding:16px 20px;border:1px solid var(--line);border-left:3px solid var(--c);border-radius:12px;background:var(--surface);outline:none;scroll-margin:120px}
+.adm .fold .rv{margin:12px 0 0}
+.adm .rv:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--ink) 30%,transparent)}
+.adm .rv-sug{display:flex;gap:10px;align-items:baseline;font-size:14px;line-height:21px}
+.adm .tag{flex:none;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);white-space:nowrap}
+.adm .rv h3{margin:12px 0 2px;font-size:17px;font-weight:500;letter-spacing:-.01em}
+.adm .rv h3 b{font-weight:650}.adm .rv h3 a{color:var(--ink)}
+.adm .rv-co{font-size:13px;line-height:20px;color:var(--muted)}.adm .rv-co a,.adm .rv-x a,.adm .rv-foot a{color:var(--muted)}
+.adm .rv blockquote{margin:12px 0 0;padding:10px 14px;border-left:2px solid var(--line);background:var(--tint);border-radius:0 8px 8px 0;font-size:14px;line-height:22px;color:var(--muted)}
+.adm .rv mark{background:var(--soon-soft);color:var(--ink);border-radius:3px;padding:0 2px}
+.adm .rv-x{margin:8px 0 0;font-size:13px;line-height:20px;color:var(--muted)}
+.adm .rv-more{margin-top:10px;font-size:13px;color:var(--muted)}
+.adm .rv-more summary{cursor:pointer}.adm .rv-more p{margin:6px 0 0;line-height:20px}
+.adm .rv-act{display:flex;gap:8px;align-items:center;margin-top:14px}
+.adm .rv-act .keys{margin-left:auto;font-size:12px;color:var(--muted)}
+.adm .rv.done{opacity:.45}
+.adm .rv-foot{margin-top:24px;font-size:13px;color:var(--muted)}
+.adm .fold .boxbody{padding:4px 20px 20px}
+.adm ul.rv-h{list-style:none;margin:0;padding:0;font-size:14px}
+.adm ul.rv-h li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.adm ul.rv-h li:last-child{border-bottom:0}
+.adm ul.rv-h .hw{font-size:13px;color:var(--muted)}.adm ul.rv-h form{margin-left:auto}
+.adm .okw{color:var(--fresh);font-weight:600}
+@media (max-width:560px){.adm .rv{padding:14px 16px}.adm .rv-sug{flex-direction:column;gap:6px}.adm .rv-act .keys{display:none}.adm .rv-gh{flex-wrap:wrap}}
 .adm dt.late,.adm .bad{color:var(--error)}
 .adm dt.late{font-weight:500}
 .adm .flash{margin:24px 0 0}
@@ -1938,6 +2002,7 @@ dialog.signbox:has(.fchoice){width:680px}
 .adm .checks li.bad .cs,.adm .checks li.bad .ck{color:var(--error)}
 .adm .checks li.bad,.adm tr.badrow td{background:color-mix(in srgb,var(--error-soft) 70%,transparent)}
 .adm .checks .cd{font-size:13px;color:var(--muted)}
+.adm .checks .todo{display:block;margin-top:6px;color:var(--ink)}
 .adm .checks .cm{font-size:13px;color:var(--muted);text-decoration:none}
 .adm .checks .cm:hover{color:var(--ink)}
 @media (max-width:820px){
@@ -2093,3 +2158,18 @@ dialog.signbox:has(.fchoice){width:680px}
   .adm .vwide .bars.drills .b{grid-template-columns:minmax(0,1fr) 132px}
   .adm .bars.drills .b .l{grid-column:1/-1}
 }
+/* Links to disease pages (step 20): /landscapes "Browse by disease" and the /diseases A to Z. */
+.dlinks{list-style:none;margin:0;padding:14px 20px;columns:3 220px;column-gap:24px;font-size:14px}
+.dlinks li{break-inside:avoid;padding:3px 0}
+.azbar{display:flex;flex-wrap:wrap;gap:4px 10px;margin:0 0 16px;font-size:14px}
+.azbar a{color:var(--ink);text-decoration:none;font-weight:500}
+.azbar a:hover{text-decoration:underline}
+.aiorder{margin:0;padding:14px 20px 14px 40px;font-size:14px;line-height:1.55}
+.aiorder li{padding:4px 0}
+/* /about (step 20): the home page's hero, bands and cards; the story reads as text, not a box. */
+.about .story{max-width:680px;margin:28px auto 0}
+.about .story p{font-size:18px;line-height:1.65;margin:0 0 16px;color:var(--ink)}
+.about .story p:last-child{margin:0}
+.about .card a{color:var(--ink)}
+.about .sources{margin:28px 0 0;text-align:center;font-size:15px;color:var(--muted)}
+.about .closer .fine a{color:var(--muted)}

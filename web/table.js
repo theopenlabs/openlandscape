@@ -228,7 +228,8 @@ export function dataRows(I, st, { matches = false, more = [] } = {}) {
 // `head`: what sits at the right of the list's header row ("Drugs 430"), such as Copy table and Download (exportActs); without it the list has no header.
 // Whether a drug was checked is said in its row ("not checked") and in About this list, not in a filter. The box's last line
 // says how many drugs show and how they are sorted.
-export function landscapeBody(L, k, { chips = [], after = '', more = [], rows = true, matches = true, own = '', head = null } = {}) {
+// `order`: 'dev' when drugs still in development come first (a disease page's list); the last line says so.
+export function landscapeBody(L, k, { chips = [], after = '', more = [], rows = true, matches = true, own = '', head = null, order = '' } = {}) {
   const s = L.stats, n = L.programs.length;
   const stages = s.by_phase.filter(b => b.count).length > 1 ? s.by_phase.filter(b => b.count) : [];
   const seg = (attr, label, count, on = false) => `<button type="button" aria-pressed="${on}" ${attr}>${esc(label)}<b>${count}</b></button>`;
@@ -237,7 +238,7 @@ export function landscapeBody(L, k, { chips = [], after = '', more = [], rows = 
 ${stages.length ? `<label class="stagesel"><span class="sr">Stage</span><select id="${k}-s"><option value="">All stages</option>${stages.map(b => `<option value="${b.level}">${esc(b.name)} · ${b.count}</option>`).join('')}</select></label>` : ''}
 ${chips.map(([f, label]) => `<button class="chip" type="button" aria-pressed="false" data-f="${f}">${esc(label)}</button>`).join('')}${s.china ? `<button class="tick" type="button" aria-pressed="false" data-cn>China-based <b>${s.china}</b></button>` : ''}
 <label class="sr" for="${k}-q">Find in this list</label><input class="input find" id="${k}-q" type="search" placeholder="Find a drug or company in this list" autocomplete="off"></div>`;
-  return `<div class="landbody" id="${k}" data-total="${s.programs}" data-rows="${n}">
+  return `<div class="landbody" id="${k}" data-total="${s.programs}" data-rows="${n}"${order ? ` data-order="${order}"` : ''}>
 <div class="tablebox">${head === null ? '' : `<div class="boxhead tablehead">${icon('pill')}<h2>Drugs<span class="count">${s.programs}</span></h2>${head}</div>`}${tools}<table class="land" id="${k}-t">${rowsHTML(L.programs, { area: L.area, own })}</table>
 <p class="nomatch" id="${k}-n" hidden>No drugs match “<span></span>”. <button class="linkbtn" type="button">Clear filter</button></p>
 ${n > 6 ? `<button class="linkbtn allrows" type="button" id="${k}-a">Show ${n - 6} more</button>` : ''}${after}<div class="boxfoot" id="${k}-c"></div></div>
@@ -353,7 +354,7 @@ const about = rows => `<section class="aboutbox"><div class="boxhead">${icon('in
 export function wireLandscape(k) {
   const $ = id => document.getElementById(id), box = $(k);
   if (!box) return;
-  wireTable($(k + '-t'), { chips: $(k + '-f'), input: $(k + '-q'), select: $(k + '-s'), count: $(k + '-c'), none: $(k + '-n'), total: +box.dataset.total, rows: +box.dataset.rows });
+  wireTable($(k + '-t'), { chips: $(k + '-f'), input: $(k + '-q'), select: $(k + '-s'), count: $(k + '-c'), none: $(k + '-n'), total: +box.dataset.total, rows: +box.dataset.rows, dev: box.dataset.order === 'dev' });
   // On a phone the list shows six drugs, then "Show N more". Any filter shows every match.
   const all = () => { box.classList.add('all'); if ($(k + '-a')) $(k + '-a').hidden = true; };
   ['click', 'input', 'change'].forEach(ev => $(k + '-f')?.addEventListener(ev, e => { if (e.target.closest('button, input, select')) all(); }));
@@ -434,7 +435,8 @@ export const SOLO_BTN = '<form class="solo" method="post" action="/billing/check
 // The stage (data-lv, one at a time, "All" clears it), the landscape's own filters (data-f, one at a
 // time), China-based (data-cn, on or off) and the find field all combine. `select`: the phone's stage drop-down.
 // `total`: drugs in the landscape; `rows`: how many of them are in the table (fewer for the top 10).
-export function wireTable(table, { chips, input, select, count, none, total, rows = total }) {
+export function wireTable(table, { chips, input, select, count, none, total, rows = total, dev = false }) {
+  const sorted = dev ? 'still in development first, then by stage and next date' : 'sorted by stage, then next date';
   let f = 'all', lv = '', cn = false;
   const paint = () => {
     chips?.querySelectorAll('[aria-pressed]').forEach(x => x.setAttribute('aria-pressed', x.dataset.lv !== undefined ? x.dataset.lv === lv : x.dataset.cn !== undefined ? cn : x.dataset.f === f));
@@ -450,7 +452,7 @@ export function wireTable(table, { chips, input, select, count, none, total, row
       if (!show) { table.querySelectorAll(`tr[data-detail="${tr.dataset.i}"]`).forEach(d => { d.hidden = true; }); tr.querySelector('[data-toggle]')?.setAttribute('aria-expanded', 'false'); }
     });
     paint();
-    if (count) count.textContent = `${n === total ? `${total} ${total === 1 ? 'drug' : 'drugs'}` : `${n === rows && rows < total ? `Top ${n}` : n} of ${total} drugs`}, sorted by stage, then next date`;
+    if (count) count.textContent = `${n === total ? `${total} ${total === 1 ? 'drug' : 'drugs'}` : `${n === rows && rows < total ? `Top ${n}` : n} of ${total} drugs`}, ${sorted}`;
     if (none) {
       none.hidden = n > 0; table.hidden = n === 0;
       const on = [...(chips?.querySelectorAll('[aria-pressed="true"]') || [])].filter(x => x.dataset.lv !== '').map(x => x.firstChild.textContent.trim());

@@ -53,6 +53,16 @@ ok(db.prepare('SELECT first_ref FROM user WHERE id=?').pluck().get(old.id) === n
 db.prepare("INSERT INTO user (email, created_at) VALUES ('direct@x.test', datetime('now'))").run();
 V.recordView({ p: '/app', f: { r: '', p: '/pricing' } }, { ...at, user: db.prepare("SELECT * FROM user WHERE email='direct@x.test'").get() });
 ok(db.prepare("SELECT first_ref FROM user WHERE email='direct@x.test'").pluck().get() === 'direct', 'typed in or a bookmark: direct');
+// ---- link tags (?via=li-dm) ----
+ok(V.viaTag('LI-DM') === 'li-dm' && V.viaTag('<script>x</script>') === 'scriptxscript' && V.viaTag('a'.repeat(80)).length === 30 && V.viaTag(null) === '', 'a link tag is short, lowercase, letters, digits and dashes');
+V.recordView({ p: '/', v: 'Reddit<1>' }, at);
+ok(views().at(-1).via === 'reddit1' && views().at(-1).path === '/', 'a page opened with ?via= keeps the tag');
+V.recordView({ p: '/drugs/x' }, at);
+ok(views().at(-1).via === '', 'without one: empty');
+db.prepare("INSERT INTO user (email, created_at) VALUES ('tagged@x.test', datetime('now'))").run();
+V.recordView({ p: '/app', f: { r: 'https://www.linkedin.com/', p: '/', v: 'li-dm' } }, { ...at, user: db.prepare("SELECT * FROM user WHERE email='tagged@x.test'").get() });
+ok(db.prepare("SELECT first_ref FROM user WHERE email='tagged@x.test'").pluck().get() === 'via:li-dm', 'a new account that came by a tagged link keeps the tag, over the sending site');
+ok(/get\('via'\)/.test(V.visitScript(false)) && /v:v/.test(V.visitScript(false)), 'the script sends the tag and keeps it with the first visit');
 ok(/localStorage/.test(V.visitScript(false)) && /var s=1/.test(V.visitScript(true)) && /fetch\('\/v'/.test(V.visitScript(true)), 'every page carries the script; it knows whether the person is signed in');
 
 // ---- bot watch on signed-out pages ----

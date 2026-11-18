@@ -287,10 +287,12 @@ const COLUMNS = {
     card_fp: 'TEXT',                   // Stripe's fingerprint of the card that paid (src/billing.js noteCard: one card, two accounts)
     first_ref: 'TEXT', first_page: 'TEXT',  // the site and our page of the visit that led to the account (src/visits.js)
     solo_until: 'TEXT',                // Solo given free from the admin dashboard until this day (YYYY-MM-DD); then back to Free by itself
+    test: 'INTEGER DEFAULT 0',         // 1 = a test account (admin Today, "Test account"): left out of Today and every admin number
     guide_done: 'TEXT',                // the setup guide's steps seen done, "pick,search": a tick never goes back. NULL = never worked out
     guide_hidden: 'INTEGER DEFAULT 0' }, // 0 = the setup guide shows, 1 = hidden by hand (Settings shows it again), 2 = finished
   visitor_day: { agent: 'TEXT' },        // the program name behind the computer's last signed-out page (bot watch)
-  page_view: { country: 'TEXT' },        // two-letter country from the address at the time (src/country.js); the address is not kept
+  page_view: { country: 'TEXT',          // two-letter country from the address at the time (src/country.js); the address is not kept
+    via: 'TEXT' },                       // the link tag the page was opened with (?via=li-dm, src/visits.js); '' for none
   payment: { delivered_at: 'TEXT', done_note: 'TEXT' },   // a custom landscape order: when it was delivered (the 48-hour clock), and a note
   company: { cik: 'INTEGER',             // SEC company number (seed/sec.js); null = not covered by SEC
     parent_id: 'TEXT' },                 // hand-checked owner (seed companyParents); matching treats the two as one company

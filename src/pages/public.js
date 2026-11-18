@@ -1,7 +1,7 @@
 // Public pages: the landing page, pricing, How we check, Talk to us and the unsubscribe pages (specs 14, 16, 20, 22).
 import { esc, rowsHTML, phaseBar, milestonePlain, shortDate } from '../../web/table.js';
 import { liveMode } from '../billing.js';
-import { BRAND, LOGO, prettyDate, layout, footer, pageHead } from './shared.js';
+import { BRAND, LOGO, prettyDate, layout, footer, pageHead, orgLd, orgRef, siteUrl } from './shared.js';
 import { eventWords } from './app.js';
 import { icon } from '../../web/icons.js';
 
@@ -42,6 +42,7 @@ export function landingPage(L, { user, changes = [], coming = [], showcase = [],
   const short = x => x.short;
   return layout({
     title: `${BRAND}: every drug in development, with a source for every fact`, user, path: '/',
+    ld: [orgLd(), { '@type': 'WebSite', '@id': `${siteUrl()}/#site`, name: BRAND, url: siteUrl() + '/', publisher: orgRef() }],
     desc: `Who is developing what, how far each drug has got and what happens next, for any disease. A source for every fact. Free, no payment card needed.`,
     body: `<main class="home">
 <section class="hero wrap">
@@ -141,6 +142,9 @@ export function pricingPage({ user, cancelled, error, flash, feed = { news: [], 
     : `<form class="waitlist" novalidate><button class="btn cta" type="button" data-open>Join the waitlist</button></form>`;
   return layout({
     title: `Pricing | ${BRAND}`, user, active: 'pricing', path: '/pricing',
+    ld: [{ '@type': 'SoftwareApplication', name: BRAND, url: siteUrl() + '/', applicationCategory: 'BusinessApplication', operatingSystem: 'Web', publisher: orgRef(),
+      offers: [{ '@type': 'Offer', name: 'Free', price: 0, priceCurrency: 'USD' },
+        { '@type': 'Offer', name: 'Solo', price: 49, priceCurrency: 'USD', priceSpecification: { '@type': 'UnitPriceSpecification', price: 49, priceCurrency: 'USD', billingDuration: 'P1M', valueAddedTaxIncluded: false } }] }],
     desc: 'Free to start: no payment card needed, no time limit. Solo $49 a month, excl. VAT: every list in full, follow 5 of any landscape, company or drug, every change as it happens.',
     body: `<main class="wrap pricing">
 ${!liveMode() ? `<div class="flash"><b>Test mode.</b> Payments use Stripe's test mode while we set up. Use card 4242 4242 4242 4242, any future date, any CVC. No real money moves.</div>` : ''}
@@ -319,7 +323,7 @@ export const UNSUB = {
   news: { ask: 'Stop big-news emails?', what: 'A big-news email comes when a regulator decides on a drug in your landscape.', btn: 'Stop big-news emails',
     done: 'You will not get big-news emails any more', more: 'Your landscape stays in your account, and its list stays up to date.',
     undo: 'Turn big-news emails back on', back: 'Big-news emails are back on', backMore: 'The next one comes when a regulator decides on a drug in your landscape.' },
-  all: { ask: 'Stop all emails from us?', what: 'That is the Monday email and big-news emails.', btn: 'Stop all emails',
+  all: { ask: 'Stop all emails from us?', what: 'That is every email from us: the Monday email, big news, and the emails about your account and landscape.', btn: 'Stop all emails',
     done: 'You will not get emails from us any more', more: 'Only sign-in links, when you ask for one. Your landscapes stay in your account.',
     undo: 'Turn emails back on', back: 'Emails from us are back on', backMore: 'Your landscapes stay in your account.' },
 };

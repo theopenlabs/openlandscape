@@ -1,7 +1,7 @@
 // Our own visit counting: no outside analytics. Every page drawn by layout() (src/pages/shared.js)
 // tells /v once it has loaded in a browser; most scrapers never run the page, and the ones that say what they are are dropped here.
 // Kept per page opened: day, page (no query string: searches can be private), the site that sent them (host only), a campaign name
-// (utm_source), phone/tablet/computer, the country (looked up from the address, src/country.js), signed in or not, and a visitor code. The code mixes the address and browser with a salt that
+// (utm_source), a link tag (?via=li-dm: links we hand out ourselves, which often carry no referrer), phone/tablet/computer, the country (looked up from the address, src/country.js), signed in or not, and a visitor code. The code mixes the address and browser with a salt that
 // changes every day and is then forgotten, so it counts people per day but cannot be traced back to anyone. No address is kept.
 import { createHash, randomBytes } from 'node:crypto';
 import { getDb, meta } from './db.js';
@@ -19,6 +19,8 @@ export function refHost(ref, ownHost = '') {
     return !own || (h !== own && !h.endsWith('.' + own) && !own.endsWith('.' + h)) ? h.slice(0, 100) : '';
   } catch { return ''; }
 }
+// A link tag from ?via=: short, lowercase letters, digits and dashes only.
+export const viaTag = v => String(v || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 30);
 const cleanPath = p => (typeof p === 'string' && p.startsWith('/') ? p.split(/[?#]/)[0].slice(0, 200) : '');
 // The day's salt: made fresh each day (kept in meta so a restart the same day counts the same people once), the old one overwritten.
 function salt(day) {
@@ -28,7 +30,7 @@ function salt(day) {
   meta.set('visit_salt', `${day}:${fresh}`);
   return fresh;
 }
-// One page opened. body: { p: page, r: referrer, u: utm_source, f: { r, p } (the first visit before signing up, kept in the browser) }.
+// One page opened. body: { p: page, r: referrer, u: utm_source, v: ?via= tag, f: { r, p, v } (the first visit before signing up, kept in the browser) }.
 // Returns false when nothing was recorded (a bot, or no page).
 export function recordView(body, { ip = '', ua = '', user = null, host = '', now = new Date() } = {}) {
   const path = cleanPath(body?.p);
@@ -36,12 +38,13 @@ export function recordView(body, { ip = '', ua = '', user = null, host = '', now
   const day = now.toISOString().slice(0, 10), db = getDb();
   const visitor = createHash('sha256').update(`${salt(day)}|${ip}|${ua}`).digest('hex').slice(0, 16);
   const utm = String(body?.u || '').replace(/[^\w.-]/g, '').slice(0, 60);
-  db.prepare('INSERT INTO page_view (day, path, ref, utm, device, visitor, signed_in, country) VALUES (?,?,?,?,?,?,?,?)')
-    .run(day, path, refHost(body?.r, host), utm, device(ua), visitor, user ? 1 : 0, country(ip));
+  db.prepare('INSERT INTO page_view (day, path, ref, utm, via, device, visitor, signed_in, country) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(day, path, refHost(body?.r, host), utm, viaTag(body?.v), device(ua), visitor, user ? 1 : 0, country(ip));
   // How a new account found us: the first visit the browser kept from before signing up, for an account made in the last two days.
+  // A link tag wins over the site that sent them ("via:li-dm").
   const f = body?.f;
   if (user && f && !user.first_ref && Date.now() - Date.parse(String(user.created_at).replace(' ', 'T') + 'Z') < 2 * 864e5)
-    db.prepare('UPDATE user SET first_ref=?, first_page=? WHERE id=? AND first_ref IS NULL').run(refHost(f.r, host) || 'direct', cleanPath(f.p), user.id);
+    db.prepare('UPDATE user SET first_ref=?, first_page=? WHERE id=? AND first_ref IS NULL').run(viaTag(f.v) ? 'via:' + viaTag(f.v) : refHost(f.r, host) || 'direct', cleanPath(f.p), user.id);
   return true;
 }
 // Signed-out page counts per computer (src/limits.js) are kept 30 days, then deleted. Called every hour.
@@ -50,7 +53,7 @@ export const pruneVisitors = (now = new Date()) =>
 
 // The script every page carries (layout()). Signed out, the first visit is kept in the browser (localStorage, "how you found us")
 // until the account is made; signed in, it is sent once and removed.
-export const visitScript = signedIn => `<script>(function(){try{var s=${signedIn ? 1 : 0},k='ol_first',f=null,r=document.referrer,h=location.host;
-try{f=localStorage.getItem(k);if(!s&&!f){var x='';try{if(r&&new URL(r).host!==h)x=r}catch(e){}localStorage.setItem(k,JSON.stringify({r:x,p:location.pathname}))}
+export const visitScript = signedIn => `<script>(function(){try{var s=${signedIn ? 1 : 0},k='ol_first',f=null,r=document.referrer,h=location.host,q=new URLSearchParams(location.search),v=(q.get('via')||'').toLowerCase().replace(/[^a-z0-9-]/g,'').slice(0,30);
+try{f=localStorage.getItem(k);if(!s&&!f){var x='';try{if(r&&new URL(r).host!==h)x=r}catch(e){}localStorage.setItem(k,JSON.stringify({r:x,p:location.pathname,v:v}))}
 if(s&&f)localStorage.removeItem(k);else f=null}catch(e){f=null}
-fetch('/v',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({p:location.pathname,r:r,u:new URLSearchParams(location.search).get('utm_source')||'',f:f?JSON.parse(f):null})}).catch(function(){})}catch(e){}})()</script>`;
+fetch('/v',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({p:location.pathname,r:r,u:q.get('utm_source')||'',v:v,f:f?JSON.parse(f):null})}).catch(function(){})}catch(e){}})()</script>`;

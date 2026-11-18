@@ -56,7 +56,7 @@ const PHASE4_ONLY_FOR = {
 export const ctgovUrl = nct => `https://clinicaltrials.gov/study/${nct}`;
 export const today = () => (process.env.TODAY || new Date().toISOString().slice(0, 10));
 // "2026-12" is treated as the end of that month, so month-only dates in the current month still count as upcoming.
-const endOf = d => (!d ? null : d.length === 7 ? d + '-31' : d.length === 4 ? d + '-12-31' : d);
+export const endOf = d => (!d ? null : d.length === 7 ? d + '-31' : d.length === 4 ? d + '-12-31' : d);
 const pretty = d => {
   if (!d) return '';
   const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -341,13 +341,14 @@ function areaDrugList(area, phase_min) {
   if (areaMemo.size > 200) areaMemo.delete(areaMemo.keys().next().value);
   return L;
 }
-export function landscape({ area, phase_min = 1, include_finished = false, limit = 500 } = {}) {
+// `ncts`: a ready set of trials (a disease page's tagged trials, src/diseasemap.js diseaseDrugs) instead of matching `area`'s words.
+export function landscape({ area, phase_min = 1, include_finished = false, limit = 500, ncts: given = null } = {}) {
   const db = getDb();
-  const { ncts, programs: onlyProgs } = areaMatch(area);
+  const { ncts, programs: onlyProgs } = given ? { ncts: given, programs: null } : areaMatch(area);
   if (!ncts.size) return { area, programs: [], summary: summarize(area, [], phase_min, 0), stats: { programs: 0, trials: 0, checked: 0, read_at: null }, included: null, data: dataDates() };
   // What a disease search included (sub-diseases, branches left out, coverage of the registry's own tags), for the "Included" line.
-  const dq = onlyProgs ? null : diseaseQuery(area);
-  const included = onlyProgs ? null : mapIncluded(dq.terms.map(x => x.meshKey), dq.letters.length ? null : area, dq.letters.length ? null : ncts);
+  const dq = onlyProgs || given ? null : diseaseQuery(area);
+  const included = onlyProgs || given ? null : mapIncluded(dq.terms.map(x => x.meshKey), dq.letters.length ? null : area, dq.letters.length ? null : ncts);
   // A drug's approval or filing (e.g. "FDA-approved (any use)") sets its stage only when the search is about the drug
   // itself (drug, mechanism or company search) or a hand-checked disease. In any other disease search the stage is the
   // furthest phase of the drug's trials for that disease, and the approval is shown as a note.

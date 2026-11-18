@@ -16,6 +16,7 @@ const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if
 let made = null, cards = {}, prices = {}, subStatus = {};
 B.useStripe({
   checkout: { sessions: { create: async p => { made = p; return { url: 'https://checkout.stripe.test/x' }; } } },
+  billingPortal: { sessions: { create: async p => ({ url: `https://billing.stripe.test/${p.customer}` }) } },
   subscriptions: { retrieve: async id => ({ status: subStatus[id] || 'active', items: { data: [{ price: { id: prices[id] } }] }, default_payment_method: { card: { fingerprint: cards[id] } } }) },
   webhooks: { constructEvent: (body, sig) => { if (sig !== 'good') throw new Error('bad signature'); return JSON.parse(body); } },
 });
@@ -46,6 +47,8 @@ ok(made.line_items[0].price === 'price_y', 'with Stripe price IDs set: yearly us
 db.prepare("UPDATE user SET stripe_customer='cus_a' WHERE id=?").run(a.id);
 await B.createCheckout({ plan: 'solo', user: { ...a, stripe_customer: 'cus_a' }, origin: 'x' });
 ok(made.customer === 'cus_a' && made.customer_update.address === 'auto' && made.customer_update.name === 'auto', 'a returning customer keeps their Stripe customer, address saved for tax');
+// An account already on Solo that presses Choose Solo again goes here instead of a second checkout (src/server.js toBilling).
+ok(await B.portalUrl({ ...a, stripe_customer: 'cus_a' }, 'x') === 'https://billing.stripe.test/cus_a' && await B.portalUrl(a, 'x') === null, 'billing page for a Stripe customer; none without one (Home instead)');
 
 // Webhook
 const hook = (type, object) => B.handleWebhook(JSON.stringify({ type, data: { object } }), 'good');
@@ -60,7 +63,7 @@ ok(plan(y) === 'solo_year', 'a yearly checkout makes the account Solo, yearly');
 ok(adminMails.length === 0, 'first card: no email');
 const u = user('u@co.test'); cards.sub_u = 'fp_u'; prices.sub_u = 'price_y'; await done(u, 'sub_u');
 ok(plan(u) === 'solo_year', 'bought monthly but took the yearly offer on Stripe\'s page: Solo, yearly');
-await hook('customer.subscription.updated', { customer: `cus_${u.id}`, status: 'active', items: { data: [{ price: { id: 'price_m' } }] } });
+prices.sub_u = 'price_m'; await hook('customer.subscription.updated', { id: 'sub_u', customer: `cus_${u.id}`, status: 'active', items: { data: [{ price: { id: 'price_m' } }] } });
 ok(plan(u) === 'solo', 'switched to monthly in the billing portal: Solo, monthly');
 const b = user('b@other.test'); cards.sub_b = 'fp_1'; await done(b, 'sub_b');
 ok(adminMails.length === 1 && /b@other\.test paid with the same card as a@co\.test/.test(adminMails[0]), 'same card, second account: one email to us');
@@ -83,6 +86,18 @@ await hook('checkout.session.completed', { id: 'cs_k', status: 'complete', payme
 ok(plan(k) === 'free', 'a bank payment still clearing (unpaid): no Solo yet');
 await hook('checkout.session.async_payment_succeeded', { id: 'cs_k', status: 'complete', payment_status: 'paid', metadata: { plan: 'solo', user_id: String(k.id) }, customer_details: { email: k.email }, amount_total: 4900, currency: 'usd', customer: 'cus_k', subscription: 'sub_k', livemode: false });
 ok(plan(k) === 'solo', 'the bank payment arrives later: Solo then');
+// Security read 18 Nov: late or misdirected payments.
+await B.createCheckout({ plan: 'solo', user: k, origin: 'x' });
+ok(made.metadata.user_email === k.email && made.metadata.user_id === String(k.id), 'a checkout names the account by number and email');
+const r0 = user('r@co.test'); db.prepare('DELETE FROM user WHERE id=?').run(r0.id);
+db.prepare("INSERT INTO user (id, email, plan) VALUES (?, 'new@co.test', 'free')").run(r0.id);
+await hook('checkout.session.async_payment_succeeded', { id: 'cs_r', status: 'complete', payment_status: 'paid', metadata: { plan: 'solo', user_id: String(r0.id), user_email: 'r@co.test' }, customer_details: { email: 'r@co.test' }, amount_total: 4900, currency: 'usd', customer: 'cus_r', subscription: 'sub_r', livemode: false });
+const newcomer = db.prepare('SELECT plan, stripe_customer FROM user WHERE id=?').get(r0.id);
+ok(newcomer.plan === 'free' && !newcomer.stripe_customer, 'a deleted account\'s late payment does not go to the next account given its number');
+const l = user('l@co.test'); subStatus.sub_l = 'canceled'; await done(l, 'sub_l');
+ok(plan(l) === 'free', 'a late checkout message for a subscription cancelled since: no Solo');
+prices.sub_l = 'price_m'; await hook('customer.subscription.updated', { id: 'sub_l', customer: `cus_${l.id}`, status: 'active', items: { data: [{ price: { id: 'price_m' } }] } });
+ok(plan(l) === 'free', 'a late "active" message after a cancel: still Free (the subscription is asked as it is now)');
 
 // Payment trouble (billing_event, one email each to us)
 const trouble = kind => db.prepare('SELECT * FROM billing_event WHERE kind=? ORDER BY id').all(kind);

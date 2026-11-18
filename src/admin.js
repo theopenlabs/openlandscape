@@ -10,7 +10,8 @@ import { isIPv4 } from 'node:net';
 import { DB_PATH } from './db.js';
 import { esc } from '../web/table.js';
 import { icon, logo } from '../web/icons.js';
-import { BRAND, adminDoc, menuButton } from './pages/shared.js';
+import { BRAND, adminDoc, menuButton, themeSwitch } from './pages/shared.js';
+import { reviewSummary, reviewBody } from './review.js';
 import { BOT_AGENT } from './visits.js';
 import { country } from './country.js';
 import { DRUGS, PAGES } from './limits.js';
@@ -38,7 +39,7 @@ export function funnel(db, days) {
       ${has("SELECT 1 FROM usage x WHERE x.user_id=u.id AND x.kind='checkout'")} AS started_payment,
       ${has("SELECT 1 FROM payment pm WHERE pm.user_id=u.id")} AS paid,
       ${has("SELECT 1 FROM user v WHERE v.id=u.id AND v.last_seen IS NOT NULL AND date(v.last_seen) > date(v.created_at, '+6 days')")} AS came_back
-    FROM user u WHERE u.created_at >= datetime('now', ?) GROUP BY coalesce(u.came_from, '') ORDER BY accounts DESC`).all(`-${days} days`)
+    FROM user u WHERE u.created_at >= datetime('now', ?) AND coalesce(u.test,0)=0 GROUP BY coalesce(u.came_from, '') ORDER BY accounts DESC`).all(`-${days} days`)
     .map(r => ({ ...r, label: cameLabel(r.came_from) }));
 }
 
@@ -98,19 +99,28 @@ const note = s => `<p class="note">${s}</p>`;
 // A one-button form that does one thing (POST, admin only; src/server.js).
 const act = (token, path, label, { cls = '', fields = '' } = {}) => `<form class="ra" method="post" action="${link(token, path)}">${fields}<button class="btn sm${cls ? ' ' + cls : ''}" type="submit">${label}</button></form>`;
 
+// A "⋯" menu of more actions (a <details>, so it opens without a script; web/admin.js closes it on a click elsewhere).
+const DOTS = '<svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+const menu = items => `<details class="pm"><summary class="pm-btn" aria-label="More actions" title="More">${DOTS}</summary><div class="pm-list">${items}</div></details>`;
+// Test accounts (Today's "Test account", or the person's page): left out of Today and every admin number.
+const testEmails = db => new Set(db.prepare('SELECT lower(email) FROM user WHERE test=1').pluck().all());
+// Today's Review row: how many items wait, by what the review page suggests.
+const reviewLine = rv => [rv.news && `${plural(rv.news, 'regulator news item')} ${rv.news === 1 ? 'waits' : 'wait'} for you${rv.news ? `: ${[rv.publish && `${n(rv.publish)} ${rv.publish === 1 ? 'looks' : 'look'} new`, rv.dismiss && `${n(rv.dismiss)} ${rv.dismiss === 1 ? 'looks' : 'look'} like old news`, rv.check && `${n(rv.check)} ${rv.check === 1 ? 'is' : 'are'} your call`].filter(Boolean).join(', ')}` : ''}.`,
+  rv.rows && `${plural(rv.rows, 'drug row')} a reader doubted.`].filter(Boolean).join(' ');
+
 // What an action says afterwards (?ok= or ?err= in the address it goes back to).
 const SAID = {
-  done: 'Marked done.', delivered: 'Marked delivered.', solo: 'Solo given. It goes back to Free by itself after the date.', soloend: 'Back on Free.',
+  done: 'Marked done.', ignored: 'Ignored. It is under Done lately.', test: 'Marked as a test account: left out of Today and every number. Undo it on their page.', untest: 'No longer a test account.', delivered: 'Marked delivered.', solo: 'Solo given. It goes back to Free by itself after the date.', soloend: 'Back on Free.',
   emailsoff: 'All their emails are off.', signout: 'Signed out on every browser.', deleted: 'Account deleted. Only a line that an account was deleted stays.',
   baddate: 'Pick a day after today, within two years.', paying: 'They pay for Solo in Stripe. Change or cancel it there.', wrongemail: 'That is not their email, so nothing was deleted.',
 };
 const flash = query => (SAID[query.ok] ? `<div class="flash">${SAID[query.ok]}</div>` : SAID[query.err] ? `<div class="flash error">${SAID[query.err]}</div>` : '');
 
 // ---------- the frame ----------
-const NAV = [['', 'Today', 'home'], ['/people', 'People', 'user']];
+const NAV = [['', 'Today', 'home'], ['/people', 'People', 'user'], ['/review', 'Review', 'check']];
 const NUMBERS = [['/growth', 'Growth', 'pulse'], ['/interest', 'Interest', 'search'], ['/money', 'Money', 'card'], ['/health', 'Health', 'database']];
 function sidebar(db, here, token) {
-  const counts = { '': needs(db, token).length, '/money': dollars(mrr(payers(db).filter(p => p.live === 1))),
+  const counts = { '': needs(db, token).length, '/review': (c => (c ? n(c) : ''))(reviewSummary(db).total), '/money': dollars(mrr(payers(db).filter(p => p.live === 1))),
     '/growth': (c => (c ? `${n(c)} new` : ''))(cohort(db, '-7 days', '+1 day').length),
     '/interest': (c => (c ? n(c) : ''))(db.prepare("SELECT count(DISTINCT lower(detail)) FROM usage WHERE kind='search_none' AND at >= datetime('now','-7 days')").pluck().get()),
     '/health': healthChecks(db).some(c => c.state === 'bad') ? dotHtml('bad', 'Something needs a look') : dotHtml('ok', 'Everything is working') };
@@ -121,7 +131,7 @@ function sidebar(db, here, token) {
   <nav class="grp" aria-label="Admin">${NAV.map(it).join('')}</nav>
   <nav class="grp" aria-label="Numbers"><div class="lbl">Numbers</div>${NUMBERS.map(it).join('')}</nav>
   </div>
-  <div class="side-foot"><a class="it" href="/app">${icon('arrow')}<span class="t">Back to ${BRAND}</span></a></div></div>
+  <div class="side-foot"><div class="it themerow">${icon('contrast')}<span class="t">Theme</span>${themeSwitch()}</div><a class="it" href="/app">${icon('arrow')}<span class="t">Back to ${BRAND}</span></a></div></div>
 </aside>`;
 }
 function shell(db, title, here, body, token) {
@@ -157,59 +167,73 @@ function personLine(db, u) {
 // A site's host in words: google.com → Google.
 const SOURCE_NAMES = { 'google.com': 'Google', 'bing.com': 'Bing', 'duckduckgo.com': 'DuckDuckGo', 'linkedin.com': 'LinkedIn', 'lnkd.in': 'LinkedIn', 'news.ycombinator.com': 'Hacker News',
   'x.com': 'X', 't.co': 'X', 'twitter.com': 'X', 'reddit.com': 'Reddit', 'chatgpt.com': 'ChatGPT', 'claude.ai': 'Claude', 'perplexity.ai': 'Perplexity', 'facebook.com': 'Facebook' };
-const sourceName = h => SOURCE_NAMES[String(h || '').replace(/^(www|m|l)\./, '').replace(/^google\.[a-z.]+$/, 'google.com')] || h;
+// A link tag we handed out ("via:li-dm") reads "Link tagged li-dm".
+const sourceName = h => /^via:/.test(h || '') ? `Link tagged ${h.slice(4)}` : SOURCE_NAMES[String(h || '').replace(/^(www|m|l)\./, '').replace(/^google\.[a-z.]+$/, 'google.com')] || h;
 // Everything waiting on the admin, oldest-late first: custom orders, Talk to us, payment trouble, landscape requests, Team waitlist, review.
 // Each with the button that finishes it.
 function needs(db, token) {
   const out = [];
   const lateBy = s => hoursSince(s) > DUE_HOURS;
   const age = s => { const h = hoursSince(s); return h < 48 ? `${Math.max(0, Math.floor(h))} h` : `${Math.floor(h / 24)} days`; };
-  const done = (kind, id, label = 'Done', before = '') => `<form class="ra" method="post" action="${link(token, `/done/${kind}/${id}`)}">${before}<input class="input" name="note" placeholder="Note" aria-label="Note" maxlength="300"><button class="btn sm primary" type="submit">${label}</button></form>`;
-  for (const o of db.prepare("SELECT * FROM payment WHERE plan LIKE 'custom%' AND delivered_at IS NULL ORDER BY id").all()) {
+  // Each row: one button (Done, or what finishes it), and a "⋯" menu with Write or Reply, Add a note, Ignore (every row) and,
+  // for a row about someone with an account, Test account (src/admin.js ACTIONS). `also`: requests handled with this row.
+  const done = (kind, id, label = 'Done', { mail = '', email = '', also = [] } = {}) => {
+    const uid = email ? userIdOf(db, email) : null;
+    return `<form class="ra nact" method="post" action="${link(token, `/done/${kind}/${id}`)}">${also.length ? `<input type="hidden" name="also" value="${also.join(',')}">` : ''}<input class="input nnote" name="note" placeholder="Note, kept with ${label}" aria-label="Note" maxlength="300" hidden><button class="btn sm" type="submit">${icon('check', 16)}${label}</button>${menu(`${mail}<button type="button" data-note>Add a note<small>Kept with ${label}</small></button><button type="submit" name="how" value="ignore">Ignore<small>Hide it without doing anything</small></button>${uid ? `<button type="submit" formaction="${link(token, `/people/${uid}/test`)}" name="test" value="1">Test account<small>Hide them here and from every number</small></button>` : ''}`)}</form>`;
+  };
+  const mailto = (email, subject, label = 'Write') => `<a href="mailto:${esc(email)}?subject=${encodeURIComponent(subject)}">${label}<small>Opens your email</small></a>`;
+  const tests = testEmails(db), real = e => !tests.has(String(e || '').toLowerCase());
+  for (const o of db.prepare("SELECT * FROM payment WHERE plan LIKE 'custom%' AND delivered_at IS NULL ORDER BY id").all().filter(o => real(o.email))) {
     const left = DUE_HOURS - hoursSince(o.created_at);
     out.push({ late: left < 0, dt: left < 0 ? `Order, ${Math.floor(-left)} h late` : `Order, ${Math.floor(left)} h left`,
       dd: `${who(db, token, o.email)}, ${esc(money(o.amount, o.currency))}${o.livemode ? '' : ' (test)'}`, d: `${esc(o.plan.replace(/_/g, ' '))}. Paid ${esc(dDay(o.created_at))} ${esc(String(o.created_at).slice(11, 16))}.`,
-      acts: done('order', o.id, 'Delivered') });
+      acts: done('order', o.id, 'Delivered', { email: o.email }) });
   }
   // People likely to pay: pressed Choose Solo in the last 14 days and did not pay; or a Free account near or at the drug allowance.
-  // Each with Write and Done; Done hides them until it happens again.
-  const write = (email, subject) => `<a class="btn sm" href="mailto:${esc(email)}?subject=${encodeURIComponent(subject)}">Write</a>`;
+  // Each with Done (and Write in the menu); Done hides them until it happens again. A Team waitlist request from the same
+  // person is said in their row and handled with it (one row per person).
+  const reqs = db.prepare('SELECT * FROM area_request WHERE done_at IS NULL ORDER BY id').all().filter(r => real(r.email));
+  const merged = new Set();
+  const waitlist = email => reqs.filter(r => r.page === 'team-waitlist' && String(r.email).toLowerCase() === String(email).toLowerCase());
+  const withWait = (u, d) => { const w = waitlist(u.email); w.forEach(r => merged.add(r.id)); return [w.length ? `${d} Also on the Team waitlist (${ago(w[0].created_at).replace(' ago', '')} ago).` : d, w.map(r => r.id)]; };
   const nearRows = [];   // someone near the allowance who also left checkout gets one row, the allowance one (it says both)
   const near = Math.round(0.8 * DRUGS.free.month);
   for (const u of db.prepare(`SELECT u.*, (SELECT count(*) FROM drug_seen s WHERE s.user_id=u.id AND s.first_day >= date('now','-29 days')) AS seen,
         (SELECT max(at) FROM usage x WHERE x.user_id=u.id AND x.kind='drugs_stopped' AND x.at >= datetime('now','-29 days')) AS stopped
-      FROM user u WHERE u.plan='free' AND u.solo_until IS NULL`).all().filter(u => u.seen >= near || u.stopped)) {
+      FROM user u WHERE u.plan='free' AND u.solo_until IS NULL AND coalesce(u.test,0)=0`).all().filter(u => u.seen >= near || u.stopped)) {
     const since = db.prepare('SELECT max(done_at) FROM follow_up WHERE user_id=? AND kind=?').pluck().get(u.id, 'allowance');
     if (since && hoursSince(since) < 30 * 24 && !(u.stopped && u.stopped > since)) continue;   // done: back only when stopped again, or after 30 days
     const checkout = db.prepare("SELECT max(at) FROM usage WHERE user_id=? AND kind='checkout'").pluck().get(u.id);
+    const [d, also] = withWait(u, `${personLine(db, u)}${checkout ? ` Also opened checkout ${dayWords(checkout)}.` : ''}`);
     nearRows.push({ id: u.id, dt: 'Near the allowance', dd: `${who(db, token, u.email)} ${u.stopped ? `reached the ${n(DRUGS.free.month)} free drugs this month and was stopped ${esc(dayWords(u.stopped))}` : `has seen ${n(u.seen)} of ${n(DRUGS.free.month)} free drugs this month`}.`,
-      d: esc(`${personLine(db, u)}${checkout ? ` Also opened checkout ${dayWords(checkout)}.` : ''}`), acts: done('allowance', u.id, 'Done', write(u.email, `Solo on ${BRAND}`)) });
+      d: esc(d), acts: done('allowance', u.id, 'Done', { mail: mailto(u.email, `Solo on ${BRAND}`), email: u.email, also }) });
   }
   for (const u of db.prepare(`SELECT * FROM (SELECT u.*, count(*) AS presses, max(x.at) AS last FROM usage x JOIN user u ON u.id=x.user_id
-      WHERE x.kind='checkout' AND x.at >= datetime('now','-14 days') AND (u.plan='free' OR u.solo_until IS NOT NULL) GROUP BY u.id) c
+      WHERE x.kind='checkout' AND x.at >= datetime('now','-14 days') AND (u.plan='free' OR u.solo_until IS NOT NULL) AND coalesce(u.test,0)=0 GROUP BY u.id) c
       WHERE NOT EXISTS (SELECT 1 FROM payment p WHERE (p.user_id=c.id OR lower(p.email)=lower(c.email)) AND p.created_at >= c.last)
-        AND NOT EXISTS (SELECT 1 FROM follow_up f WHERE f.user_id=c.id AND f.kind='checkout' AND f.done_at >= c.last) ORDER BY last DESC`).all().filter(u => !nearRows.some(r => r.id === u.id)))
+        AND NOT EXISTS (SELECT 1 FROM follow_up f WHERE f.user_id=c.id AND f.kind='checkout' AND f.done_at >= c.last) ORDER BY last DESC`).all().filter(u => !nearRows.some(r => r.id === u.id))) {
+    const [d, also] = withWait(u, personLine(db, u));
     out.push({ dt: 'Left at checkout', dd: `${who(db, token, u.email)} pressed Choose Solo ${u.presses > 1 ? `${n(u.presses)} times, last ` : ''}${esc(dayWords(u.last))} and did not pay.`,
-      d: esc(personLine(db, u)), acts: done('checkout', u.id, 'Done', write(u.email, `Solo on ${BRAND}`)) });
+      d: esc(d), acts: done('checkout', u.id, 'Done', { mail: mailto(u.email, `Solo on ${BRAND}`), email: u.email, also }) });
+  }
   out.push(...nearRows);
-  const reqs = db.prepare('SELECT * FROM area_request WHERE done_at IS NULL ORDER BY id').all();
   for (const r of reqs.filter(r => r.page === 'talk'))
     out.push({ late: lateBy(r.created_at), dt: `Talk to us${lateBy(r.created_at) ? ', ' + age(r.created_at) : ''}`, dd: `${who(db, token, r.email)}${r.company ? ', ' + esc(r.company) : ''}`,
       d: `"${esc(String(r.message || r.area || '').slice(0, 300))}" ${esc(ago(r.created_at))}.`,
-      acts: done('request', r.id, 'Done', `<a class="btn sm" href="mailto:${esc(r.email)}?subject=${encodeURIComponent(`Re: your message to ${BRAND}`)}">Reply</a>`) });
-  for (const b of db.prepare('SELECT * FROM billing_event WHERE done_at IS NULL ORDER BY id').all())
+      acts: done('request', r.id, 'Done', { mail: mailto(r.email, `Re: your message to ${BRAND}`, 'Reply'), email: r.email }) });
+  for (const b of db.prepare('SELECT * FROM billing_event WHERE done_at IS NULL ORDER BY id').all().filter(b => real(b.email)))
     out.push({ late: lateBy(b.at), dt: TROUBLE[b.kind] || esc(b.kind), dd: `${who(db, token, b.email)}${b.amount ? ', ' + esc(money(b.amount, b.currency)) : ''}`, d: `${esc(b.detail || '')} ${esc(ago(b.at))}.`,
-      acts: done('billing', b.id, 'Done', b.customer ? `<a class="btn sm" href="${stripeUrl('customers/' + encodeURIComponent(b.customer), true)}">Stripe</a>` : '') });
+      acts: done('billing', b.id, 'Done', { mail: b.customer ? `<a href="${stripeUrl('customers/' + encodeURIComponent(b.customer), true)}" target="_blank" rel="noopener">Open in Stripe<small>Their payments and card</small></a>` : '', email: b.email }) });
   for (const r of reqs.filter(r => r.page !== 'talk' && r.page !== 'team-waitlist'))
     out.push({ late: lateBy(r.created_at), dt: `Landscape request${lateBy(r.created_at) ? ', ' + age(r.created_at) : ''}`, dd: `${who(db, token, r.email)}${r.role ? ', ' + esc(r.role) : ''}`,
-      d: `"${esc(r.area || '')}" ${esc(ago(r.created_at))}.`, acts: done('request', r.id, 'Done', `<a class="btn sm" href="mailto:${esc(r.email)}?subject=${encodeURIComponent(`Your ${r.area || 'landscape'} landscape`)}">Reply</a>`) });
-  for (const r of reqs.filter(r => r.page === 'team-waitlist'))
-    out.push({ dt: 'Team waitlist', dd: `${who(db, token, r.email)}${r.role ? ', ' + esc(r.role) : ''}`, d: `Asked for ${esc(r.area || 'Team')} ${esc(ago(r.created_at))}.`, acts: done('request', r.id) });
-  const review = Object.fromEntries(db.prepare("SELECT type, count(*) AS c FROM match_candidate WHERE status='open' GROUP BY type").all().map(r => [r.type, r.c]));
-  const parts = [review.decision && plural(review.decision, 'regulator news item'), review.study && plural(review.study, 'possible same-trial pair'),
-    review.verdict && plural(review.verdict, 'doubted drug row'), review.drug && plural(review.drug, 'possible same-drug pair')].filter(Boolean);
-  if (parts.length) out.push({ dt: 'To check', dd: parts.join(', '), d: 'Each one is published or dismissed on the review page.',
-    acts: `<span class="ra"><a class="btn sm" href="/admin/review${token ? '?token=' + encodeURIComponent(token) : ''}">Open review</a></span>` });
+      d: `"${esc(r.area || '')}" ${esc(ago(r.created_at))}.`, acts: done('request', r.id, 'Done', { mail: mailto(r.email, `Your ${r.area || 'landscape'} landscape`, 'Reply'), email: r.email }) });
+  for (const r of reqs.filter(r => r.page === 'team-waitlist' && !merged.has(r.id)))
+    out.push({ dt: 'Team waitlist', dd: `${who(db, token, r.email)}${r.role ? ', ' + esc(r.role) : ''}`, d: `Asked for ${esc(r.area || 'Team')} ${esc(ago(r.created_at))}.`,
+      acts: done('request', r.id, 'Done', { mail: mailto(r.email, `${BRAND} for teams`), email: r.email }) });
+  // Review: only what can be acted on (news that can be published, drug rows a reader doubted); Ignore hides it until something new arrives.
+  const rv = reviewSummary(db), seenUpTo = +(db.prepare("SELECT v FROM meta WHERE k='review_ignored_id'").pluck().get() || 0);
+  if (rv.total && rv.newest > seenUpTo) out.push({ dt: 'Review', dd: reviewLine(rv), d: 'About 10 minutes. Best on Monday morning, before the weekly email goes out.',
+    acts: `<form class="ra nact" method="post" action="${link(token, '/done/review/0')}"><a class="btn sm primary" href="${link(token, '/review')}">Review</a>${menu('<button type="submit" name="how" value="ignore">Ignore<small>Until something new arrives</small></button>')}</form>` });
   return out;
 }
 
@@ -238,6 +262,9 @@ function today(db, { token, query }) {
     ...failing.map(r => `<div class="flash error"><b>Data update failing: ${esc(JOB_LABEL[r.name] || r.name)}.</b> Since ${esc(dTime(r.finished_at))} UTC (exit code ${r.code}). It tries again every hour. <a href="${link(token, '/health')}#steps">See Health</a></div>`),
     fails.length ? `<div class="flash error"><b>${plural(fails.length, 'email')} did not send since yesterday.</b> ${fails.slice(0, 3).map(f => `${esc(MAIL[f.kind] || f.kind)} to ${esc(f.email || '?')}`).join(', ')}${fails.length > 3 ? ', and more' : ''}. <a href="${link(token, '/health')}#mail">See them</a></div>` : '',
   ].join('');
+  // Test accounts are left out of everything here; one grey line says whose, each linking to the page where it is undone.
+  const testers = db.prepare('SELECT id, email FROM user WHERE test=1 ORDER BY email').all();
+  const testLine = testers.length ? `<p class="nfoot">${testers.length === 1 ? '1 test account left out' : `${testers.length} test accounts left out`}: ${testers.map(t => `<a href="${link(token, '/people/' + t.id)}">${esc(t.email)}</a>`).join(', ')}.</p>` : '';
   // Done lately: the last 30 days of items marked done, with their notes.
   const doneList = query.done ? db.prepare(`SELECT done_at AS at, CASE page WHEN 'talk' THEN 'Talk to us' WHEN 'team-waitlist' THEN 'Team waitlist' ELSE 'Landscape request' END AS what, email, done_note AS note FROM area_request WHERE done_at >= datetime('now','-30 days')
       UNION ALL SELECT done_at, kind, email, done_note FROM billing_event WHERE done_at >= datetime('now','-30 days')
@@ -248,7 +275,7 @@ function today(db, { token, query }) {
   // One line per day, the last 14 days.
   const since = "date('now','-13 days')";
   const group = (sql) => db.prepare(sql).all().reduce((a, r) => ((a[r.d] ||= []).push(r), a), {});
-  const users = group(`SELECT date(created_at) AS d, came_from FROM user WHERE created_at >= ${since}`);
+  const users = group(`SELECT date(created_at) AS d, came_from FROM user WHERE created_at >= ${since} AND coalesce(test,0)=0`);
   const visits = Object.fromEntries(db.prepare(`SELECT day AS d, count(DISTINCT visitor) AS c FROM page_view WHERE day >= ${since} GROUP BY day`).all().map(r => [r.d, r.c]));
   const pays = group(`SELECT date(created_at) AS d, plan, amount, currency, livemode FROM payment WHERE created_at >= ${since}`);
   const trouble = group(`SELECT date(at) AS d, kind FROM billing_event WHERE at >= ${since}`);
@@ -273,11 +300,11 @@ function today(db, { token, query }) {
 
   const body = `<div class="homehead"><div><h1>Today</h1><p class="desc">What needs you, what broke, and how it is going. ${esc(dDay(t))}.</p></div>${updatedPill(db, failing)}</div>
 ${flash(query)}${notices}
-${box('Needs you', 'check', rows(items, 'Nothing needs you. All done.'), { count: items.length, more: `<a class="more" href="${link(token, '', { done: 1 })}#done">Done lately</a>` })}
+${box('Needs you', 'check', rows(items, 'Nothing needs you. All done.') + testLine, { count: items.length, more: `<a class="more" href="${link(token, '', { done: 1 })}#done">Done lately</a>` })}
 ${doneBox}
 <div class="stats">
-${stat('New people, 7 days', `<a href="${link(token, '/growth')}">${n(one("SELECT count(*) FROM user WHERE created_at >= datetime('now','-7 days')"))}</a>`, `${n(one("SELECT count(*) FROM user WHERE created_at >= date('now')"))} today, ${n(one('SELECT count(*) FROM user'))} in all`)}
-${stat('Used it, 7 days', `<a href="${link(token, '/growth')}">${n(one("SELECT count(*) FROM user WHERE last_seen >= datetime('now','-7 days')"))}</a>`, `of ${plural(one('SELECT count(*) FROM user'), 'account')}`)}
+${stat('New people, 7 days', `<a href="${link(token, '/growth')}">${n(one("SELECT count(*) FROM user WHERE created_at >= datetime('now','-7 days') AND coalesce(test,0)=0"))}</a>`, `${n(one("SELECT count(*) FROM user WHERE created_at >= date('now')"))} today, ${n(one('SELECT count(*) FROM user'))} in all`)}
+${stat('Used it, 7 days', `<a href="${link(token, '/growth')}">${n(one("SELECT count(*) FROM user WHERE last_seen >= datetime('now','-7 days') AND coalesce(test,0)=0"))}</a>`, `of ${plural(one('SELECT count(*) FROM user WHERE coalesce(test,0)=0'), 'account')}`)}
 ${stat('Paying', `<a href="${link(token, '/money')}">${n(real.length)}</a>`, `${dollars(mrr(real))} a month${test.length ? `, ${n(test.length)} more on test` : ''}`)}
 ${stat('Founding places', `<a href="${link(token, '/money')}">${n(one('SELECT count(*) FROM user WHERE founding=1'))}</a>`, `of ${FOUNDING_PLACES} used`)}
 </div>
@@ -287,7 +314,7 @@ ${box('Last 14 days', 'calendar', feed(lines))}`;
 
 // ---------- People ----------
 const planWords = u => (u.solo_until ? `Solo free until ${dShort(u.solo_until)}` : u.plan === 'free' ? 'Free' : u.plan === 'solo_year' ? 'Solo yearly' : u.plan[0].toUpperCase() + u.plan.slice(1)) + (u.founding && u.plan !== 'free' ? ', early customer' : '');
-const howFound = u => (/^ai:/.test(u.came_from || '') ? `through ${u.came_from.slice(3)}` : u.first_ref && u.first_ref !== 'direct' ? `from ${u.first_ref}` : u.came_from ? cameLabel(u.came_from).replace(/^./, c => c.toLowerCase()) : '');
+const howFound = u => (/^ai:/.test(u.came_from || '') ? `through ${u.came_from.slice(3)}` : u.first_ref && u.first_ref !== 'direct' ? `from ${/^via:/.test(u.first_ref) ? sourceName(u.first_ref).toLowerCase() : u.first_ref}` : u.came_from ? cameLabel(u.came_from).replace(/^./, c => c.toLowerCase()) : '');
 const PEOPLE_SQL = `SELECT u.*, (SELECT count(*) FROM usage x WHERE x.user_id=u.id AND x.kind='search') AS searches,
     (SELECT count(*) FROM saved_landscape s WHERE s.user_id=u.id) AS follows,
     (SELECT kind FROM billing_event b WHERE lower(b.email)=lower(u.email) AND b.done_at IS NULL ORDER BY id DESC LIMIT 1) AS trouble,
@@ -338,7 +365,8 @@ function person(db, { token, params, query }) {
   const account = [planRow,
     { dt: 'Emails', dd: esc(mails), d: u.mailfails ? red(`${plural(u.mailfails, 'email')} to them did not send`) : '', acts: u.digest_off && u.news_off ? '' : act(token, `/people/${u.id}/emails-off`, 'Turn all off') },
     { dt: 'Signed in', dd: `${sessions ? `${plural(sessions, 'browser')}` : 'Not signed in anywhere'}${apps.length ? `, ${esc(apps.map(a => clientName(a.info)).join(', '))} connected since ${esc(dShort(apps[0].since))}` : ''}`,
-      d: apps.length ? 'Signing out does not cut off a connected AI app.' : '', acts: sessions ? act(token, `/people/${u.id}/signout`, 'Sign out everywhere') : '' }];
+      d: apps.length ? 'Signing out does not cut off a connected AI app.' : '', acts: sessions ? act(token, `/people/${u.id}/signout`, 'Sign out everywhere') : '' },
+    { dt: 'Test account', dd: u.test ? 'Yes: left out of Today and every number' : 'No', acts: act(token, `/people/${u.id}/test`, u.test ? 'Not a test account' : 'Mark as test account', { fields: `<input type="hidden" name="back" value="person"><input type="hidden" name="test" value="${u.test ? 0 : 1}">` }) }];
   const timeline = db.prepare(`SELECT at, kind, detail FROM usage WHERE user_id=?
     UNION ALL SELECT created_at, 'follow', CASE WHEN kind IS NULL THEN query ELSE kind || ': ' || query END FROM saved_landscape WHERE user_id=?
     UNION ALL SELECT created_at, 'paid', plan || ' ' || amount || ' ' || coalesce(currency,'') || CASE WHEN livemode THEN '' ELSE ' (test)' END FROM payment WHERE user_id=? OR lower(email)=lower(?)
@@ -399,18 +427,35 @@ ${paying ? `<div class="flash error"><b>They pay for Solo.</b> Cancel the subscr
 const back = (id, k, v) => [`/people/${id}`, { [k]: v }];
 export const ACTIONS = {
   '/admin/done/:kind/:id': (db, { params, body }) => {
-    const noteText = String(body.note || '').trim().slice(0, 300) || null, id = +params.id;
+    // Ignore (the row's menu): handled the same way as Done, with "Ignored" as its note, so it shows as such under Done lately.
+    const ignore = body.how === 'ignore', typed = String(body.note || '').trim().slice(0, 300);
+    const noteText = ignore ? (typed ? `Ignored: ${typed}` : 'Ignored') : typed || null, id = +params.id, said = ['', { ok: ignore ? 'ignored' : 'done' }];
+    // A request handled with this row (the same person on the Team waitlist).
+    const also = String(body.also || '').split(',').map(Number).filter(Boolean);
+    const alsoDone = () => also.forEach(r => db.prepare("UPDATE area_request SET done_at=datetime('now'), done_note=? WHERE id=? AND done_at IS NULL").run(noteText, r));
+    if (params.kind === 'review') {   // Review: hidden until a newer item arrives
+      if (!ignore) return null;
+      db.prepare("INSERT INTO meta(k,v) VALUES('review_ignored_id',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v").run(String(db.prepare("SELECT coalesce(max(id),0) FROM match_candidate WHERE status='open'").pluck().get()));
+      return said;
+    }
     if (params.kind === 'checkout' || params.kind === 'allowance') {
       if (!db.prepare('SELECT 1 FROM user WHERE id=?').get(id)) return null;
       db.prepare('INSERT INTO follow_up (user_id, kind, note) VALUES (?,?,?)').run(id, params.kind, noteText);
-      return ['', { ok: 'done' }];
+      alsoDone();
+      return said;
     }
     const sql = { request: "UPDATE area_request SET done_at=datetime('now'), done_note=? WHERE id=? AND done_at IS NULL",
       billing: "UPDATE billing_event SET done_at=datetime('now'), done_note=? WHERE id=? AND done_at IS NULL",
       order: "UPDATE payment SET delivered_at=datetime('now'), done_note=? WHERE id=? AND delivered_at IS NULL" }[params.kind];
     if (!sql) return null;
     db.prepare(sql).run(noteText, id);
-    return ['', { ok: params.kind === 'order' ? 'delivered' : 'done' }];
+    return ignore ? said : ['', { ok: params.kind === 'order' ? 'delivered' : 'done' }];
+  },
+  // Test account on or off. From Today it goes back to Today; from their page (back=person) to their page.
+  '/admin/people/:id/test': (db, { params, body }) => {
+    const on = body.test === '1' ? 1 : 0;
+    if (!db.prepare('UPDATE user SET test=? WHERE id=?').run(on, +params.id).changes) return null;
+    return body.back === 'person' ? back(+params.id, 'ok', on ? 'test' : 'untest') : ['', { ok: on ? 'test' : 'untest' }];
   },
   '/admin/people/:id/solo': (db, { params, body }) => {
     const u = db.prepare('SELECT * FROM user WHERE id=?').get(+params.id);
@@ -486,7 +531,7 @@ const countryName = c => { try { return c ? COUNTRY.of(c) : ''; } catch { return
 // Visits are visitor-days of page_view (the code changes daily, so someone who comes on two days counts twice). People are the
 // accounts made in the period, without the admins' own (ADMIN_EMAILS). Each is followed through five steps.
 const adminSet = () => new Set(String(process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean));
-const notAdmin = u => !adminSet().has(String(u.email).toLowerCase());
+const notAdmin = u => !u.test && !adminSet().has(String(u.email).toLowerCase());   // admins' own and test accounts
 const REAL_AI = "(x.kind='mcp' AND x.detail NOT LIKE 'whoami%' AND x.detail NOT LIKE 'show %')";
 const PERSON_SQL = `SELECT u.*,
     (SELECT count(*) FROM usage x WHERE x.user_id=u.id AND (x.kind IN ('landscape','search','csv','follow') OR ${REAL_AI})) AS acts,
@@ -579,15 +624,17 @@ ${span.map((d, i) => { const v = dv[d] || 0, a = da[d] || 0; return `<div class=
 <span class="dbar"><span class="dv">${n(v)}</span><i style="height:${v ? Math.max(4, Math.round((100 * v) / dmax)) : 0}%"></i></span><span class="da">${a ? `<i class="acc">${n(a)}</i>` : ''}</span><span class="dlab">${d === t ? 'Today' : toDate(d).getUTCDate()}</span></div>`; }).join('')}
 </div></div><div class="legend"><span><i class="lg"></i>Visits</span><span><i class="acc">1</i>New accounts that day</span></div>`;
 
-  // Where they came from: visits by the site that sent them (the first outside site of each visit), and the new accounts by theirs
-  const visitSrc = db.prepare(`SELECT coalesce((SELECT ref FROM page_view p2 WHERE p2.day=v.day AND p2.visitor=v.visitor AND p2.ref != '' AND p2.ref NOT LIKE 'accounts.google.%' ORDER BY p2.id LIMIT 1), '') AS ref, count(*) AS c
+  // Where they came from: visits by the link tag they came with, else the site that sent them (the first outside site of each visit),
+  // and the new accounts by theirs
+  const visitSrc = db.prepare(`SELECT coalesce((SELECT 'via:' || via FROM page_view p2 WHERE p2.day=v.day AND p2.visitor=v.visitor AND p2.via != '' ORDER BY p2.id LIMIT 1),
+      (SELECT ref FROM page_view p2 WHERE p2.day=v.day AND p2.visitor=v.visitor AND p2.ref != '' AND p2.ref NOT LIKE 'accounts.google.%' ORDER BY p2.id LIMIT 1), '') AS ref, count(*) AS c
     FROM (SELECT DISTINCT day, visitor FROM page_view WHERE day >= ?) v GROUP BY 1`).all(from);
   const src = {};
   const row = k => (src[k] ||= { k, visits: 0, hosts: {}, people: [] });
-  for (const r of visitSrc) { const k = r.ref ? sourceName(r.ref) : 'Typed the address or a bookmark'; row(k).visits += r.c; if (r.ref) row(k).hosts[r.ref] = (row(k).hosts[r.ref] || 0) + r.c; }
+  for (const r of visitSrc) { const k = r.ref ? sourceName(r.ref) : 'Typed the address or a bookmark'; row(k).visits += r.c; if (r.ref && !/^via:/.test(r.ref)) row(k).hosts[r.ref] = (row(k).hosts[r.ref] || 0) + r.c; }
   for (const u of people) row(sourceOf(u)).people.push(u);
   const srcRows = Object.values(src).sort((a, b) => b.people.length - a.people.length || b.visits - a.visits);
-  let keep = srcRows.filter((r, i) => r.people.length || i < 5 || /^Typed/.test(r.k)), rest = srcRows.filter(r => !keep.includes(r));
+  let keep = srcRows.filter((r, i) => r.people.length || i < 5 || /^(Typed|Link tagged)/.test(r.k)), rest = srcRows.filter(r => !keep.includes(r));
   if (rest.length === 1) { keep = srcRows; rest = []; }   // one other site is shown as itself
   const restVisits = rest.reduce((a, r) => a + r.visits, 0);
   const isAi = r => / \(AI app\)$/.test(r.k);
@@ -654,7 +701,7 @@ ${strip}
 ${reading}
 ${newBox}
 ${box('Visits each day', 'calendar', chart, { more: '<span class="more">Last 14 days</span>' })}
-${box('Where they came from', 'arrowUpRight', `${sourceTable}<p class="boxnote under">Press a row to see who came from there. Left out: accounts.google.com and our own pages. Those are people signing in, not finding us.</p>`)}
+${box('Where they came from', 'arrowUpRight', `${sourceTable}<p class="boxnote under">Press a row to see who came from there. Left out: accounts.google.com and our own pages. Those are people signing in, not finding us. A link with <code>?via=</code> on the end (openlandscape.app/?via=li-dm) shows as its own row, Link tagged li-dm: use one per place you post.</p>`)}
 ${box('Where they landed', 'landscape', `${landTable}${landNote ? `<p class="boxnote under">${landNote}</p>` : ''}`)}
 <div class="duo">
 ${box('Where visitors are', 'landscape', `${table(['Country', 'Visits', 'Signed up'], cRows, `No visits this ${word}.`)}<p class="boxnote under">${bestC ? `Most sign-ups: ${esc(countryName(bestC[0]))} (${n(bestC[1])} of ${n(people.length)}).` : 'No sign-up with a known country yet.'} Sign-ups are placed by the address they signed up from.</p>`)}
@@ -683,7 +730,7 @@ function interest(db, { token, query }) {
   const days = +query.days === 30 ? 30 : 7, word = days === 7 ? 'week' : 'month', since = `-${days} days`;
   const admins = adminSet();
   const rows = db.prepare(`SELECT x.kind, x.detail, x.at, u.id, u.email, u.plan, u.solo_until, u.founding FROM usage x JOIN user u ON u.id=x.user_id
-    WHERE x.at >= datetime('now', ?) ORDER BY x.at`).all(since).filter(r => !admins.has(String(r.email).toLowerCase()));
+    WHERE x.at >= datetime('now', ?) AND coalesce(u.test,0)=0 ORDER BY x.at`).all(since).filter(r => !admins.has(String(r.email).toLowerCase()));
   const plan = r => planWords(r);
   // rows of one kind grouped by a key: { key: { label, count, people: { id: { email, plan, c, last } } } }
   const group = (list, keyOf, labelOf = keyOf) => {
@@ -758,9 +805,12 @@ const at = s => `${dayWords(s)} at ${String(s).slice(11, 16)}`;                 
 const MAIL_WHAT = { hello: 'a short note a few minutes after someone signs up', welcome: 'sent once to each account, after their first landscape',
   monday: 'what changed in the landscapes they follow (Solo)', news: 'a major change, to Free accounts', upgrade: 'after someone pays for Solo',
   talk: 'a Talk to us message, to us', admin: 'a note to us' };
-// Each source the hourly job checks: the meta key of its last check, its words, the step that updates it, and how old it may get.
-const CURRENT = [['ctgov_checked_at', 'ClinicalTrials.gov', 'fetch', 3], ['decisions_checked_fda', 'FDA decisions', 'fda', 3], ['decisions_checked_fda_crl', 'FDA rejection letters', 'fda', 3],
-  ['decisions_checked_ema', 'EMA decisions', 'ema', 3], ['decisions_checked_sec', 'SEC decisions', 'sec', 3], ['ctis_checked', 'EU trials (CTIS)', 'ctis', 30]];
+// Each source the hourly job checks: the meta key of its last check, its words, the step that updates it, and how old it may get
+// in hours. ClinicalTrials.gov and SEC are checked every hour; FDA, EMA and CTIS once a day (deploy/hourly.sh), so they get a day and some.
+const CURRENT = [['ctgov_checked_at', 'ClinicalTrials.gov', 'fetch', 3], ['decisions_checked_fda', 'FDA decisions', 'fda', 30], ['decisions_checked_fda_crl', 'FDA rejection letters', 'fda', 30],
+  ['decisions_checked_ema', 'EMA decisions', 'ema', 30], ['decisions_checked_sec', 'SEC decisions', 'sec', 3], ['ctis_checked', 'EU trials (CTIS)', 'ctis', 30]];
+// What to do when a check is red, in words. Most fix themselves: the job tries again every hour.
+const WAIT = 'Nothing yet. It tries again every hour. Still red tomorrow? Ask Claude to look at the server.';
 const agoM = s => { if (!s) return ''; const m = Math.floor(hoursSince(s) * 60); return m < 2 ? 'just now' : m < 60 ? `${m} min ago` : ago(s); };
 const STEP_ORDER = ['fetch', 'load', 'compare', 'fda', 'ema', 'sec', 'news', 'ctis'];
 const stepOrder = list => [...list].sort((a, b) => ((STEP_ORDER.indexOf(a.name) + 99) % 99) - ((STEP_ORDER.indexOf(b.name) + 99) % 99));
@@ -773,7 +823,7 @@ function diskInfo() {
   try { backups = readdirSync(dirname(DB_PATH)).filter(f => /^backup-.*\.db$/.test(f)).map(f => { const s = statSync(join(dirname(DB_PATH), f)); return [f, s.size, s.mtime.toISOString().slice(0, 19).replace('T', ' ')]; }).sort((a, b) => b[2].localeCompare(a[2])); } catch { /* none */ }
   return { dbSize, disk, backups };
 }
-// One row per thing that can break: { key, k, state: ok | bad | neutral, status, detail, fix }. Also used for the sidebar dot.
+// One row per thing that can break: { key, k, state: ok | bad | neutral, status, detail, fix, todo (red rows: what to do) }. Also used for the sidebar dot.
 function healthChecks(db) {
   const meta = Object.fromEntries(db.prepare('SELECT k, v FROM meta').all().map(r => [r.k, r.v]));
   const runs = stepOrder(lastRuns(db)), failing = runs.filter(r => !r.ok), label = r => JOB_LABEL[r.name] || r.name;
@@ -784,7 +834,7 @@ function healthChecks(db) {
   out.push(!runs.length ? { key: 'job', k: 'Data update', state: 'neutral', status: 'No runs recorded', detail: 'The hourly job records each step once it runs on the server.', fix: '#steps' }
     : failing.length ? { key: 'job', k: 'Data update', state: 'bad', status: failing.length === 1 ? `${label(failing[0])} failing` : `${failing.length} steps failing`,
       detail: failing.length === 1 ? `Failing since ${dTime(since.get(failing[0].name, failing[0].name))} UTC (exit code ${failing[0].code}). It tries again every hour, and you got an email. ${runs.length > 1 ? `The other ${plural(runs.length - 1, 'step')} work.` : ''}`
-        : `${failing.map(label).join(', ')}. Each tries again every hour, and you got an email for each.`, fix: '#steps' }
+        : `${failing.map(label).join(', ')}. Each tries again every hour, and you got an email for each.`, fix: '#steps', todo: WAIT }
       : { key: 'job', k: 'Data update', state: 'ok', status: 'Working',
         detail: `${week.failed ? `All ${plural(runs.length, 'step')} work now; ${plural(week.failed, 'run')} failed earlier this week.` : `All ${plural(runs.length, 'step')} worked every time this week.`} Last run ${agoM(newestRun)}.`, fix: '#steps' });
   // Current: each source checked within its time, and its step not failing (a failing step turns this red too).
@@ -794,22 +844,23 @@ function healthChecks(db) {
   const decisions = known.filter(([k]) => /^decisions/.test(k)).map(([k]) => meta[k]).sort();
   out.push(!known.length ? { key: 'current', k: 'Data is current', state: 'neutral', status: 'Not recorded', detail: 'No source check recorded yet.', fix: '#sources' }
     : old.length ? { key: 'current', k: 'Data is current', state: 'bad', status: old.length === 1 ? `${old[0][1]} ${ageWords(meta[old[0][0]])} old` : `${plural(old.length, 'source')} out of date`,
-      detail: `${old.map(([k, l, step]) => `${l}: last checked ${agoM(meta[k])}${failingNames.has(step) ? ', its step is failing' : ''}`).join('. ')}.${old.length < known.length ? ' Everything else is current.' : ''}`, fix: '#sources' }
+      detail: `${old.map(([k, l, step]) => `${l}: last checked ${agoM(meta[k])}${failingNames.has(step) ? ', its step is failing' : ''}`).join('. ')}.${old.length < known.length ? ' Everything else is current.' : ''}`, fix: '#sources', todo: WAIT }
       : { key: 'current', k: 'Data is current', state: 'ok', status: 'Up to date',
-        detail: `ClinicalTrials.gov ${meta.trials_loaded_at ? `loaded ${agoM(meta.trials_loaded_at)}` : `checked ${agoM(meta.ctgov_checked_at)}`}.${decisions.length ? ` FDA, EMA and SEC checked ${hoursSince(decisions[0]) < 1 ? 'within the hour' : agoM(decisions[0])}.` : ''}`, fix: '#sources' });
+        detail: `ClinicalTrials.gov ${meta.trials_loaded_at ? `loaded ${agoM(meta.trials_loaded_at)}` : `checked ${agoM(meta.ctgov_checked_at)}`}.${decisions.length ? ` SEC checked every hour, FDA and EMA once a day.` : ''}`, fix: '#sources' });
   const sent = db.prepare("SELECT (SELECT count(*) FROM mail_log WHERE sent_at >= datetime('now','-7 days')) + (SELECT count(*) FROM digest_log WHERE sent_at >= date('now','-6 days'))").pluck().get();
   const fails = db.prepare("SELECT * FROM mail_fail WHERE at >= datetime('now','-7 days') ORDER BY id DESC").all();
   const f0 = fails[0];
   out.push(fails.length ? { key: 'mail', k: 'Emails', state: 'bad', status: fails.length === 1 ? '1 email did not send' : `${n(fails.length)} emails did not send`,
-    detail: `${MAIL[f0.kind] || f0.kind} to ${f0.email || 'someone'}, ${at(f0.at)}. The email service said: "${String(f0.error || '').replace(/^Email failed: /, '').slice(0, 120)}".${fails.length > 1 ? ` And ${plural(fails.length - 1, 'more')}.` : ''}`, fix: '#mail' }
+    detail: `${MAIL[f0.kind] || f0.kind} to ${f0.email || 'someone'}, ${at(f0.at)}. The email service said: "${String(f0.error || '').replace(/^Email failed: /, '').slice(0, 120)}".${fails.length > 1 ? ` And ${plural(fails.length - 1, 'more')}.` : ''}`, fix: '#mail',
+    todo: fails.length > 2 ? 'Several failed, so the email service (Resend) may be down or out of its monthly allowance. Ask Claude to check it.' : 'Usually nothing: most are a mistyped address. If it was someone who pays, write to them yourself.' }
     : { key: 'mail', k: 'Emails', state: 'ok', status: sent ? 'Sending' : 'Nothing sent', detail: `${plural(sent, 'email')} sent this week, none failed. Bounces are not tracked yet.`, fix: '#mail' });
   const { dbSize, disk, backups } = diskInfo();
   out.push(!disk ? { key: 'disk', k: 'Disk', state: 'neutral', status: 'Not known', detail: 'This computer does not say how much room is left.', fix: '#disk' }
-    : disk.free < 2e9 ? { key: 'disk', k: 'Disk', state: 'bad', status: 'Almost full', detail: `${size(disk.free)} free of ${size(disk.total)}. The database is ${size(dbSize)}. Under 2 GB, updates and backups can fail.`, fix: '#disk' }
+    : disk.free < 2e9 ? { key: 'disk', k: 'Disk', state: 'bad', status: 'Almost full', detail: `${size(disk.free)} free of ${size(disk.total)}. The database is ${size(dbSize)}. Under 2 GB, updates and backups can fail.`, fix: '#disk', todo: 'Ask Claude to clear old files on the server this week.' }
       : { key: 'disk', k: 'Disk', state: 'ok', status: 'Plenty of room', detail: `${size(disk.free)} free of ${size(disk.total)}. The database is ${size(dbSize)}.`, fix: '#disk' });
   const newest = backups[0]?.[2];
-  out.push(!newest ? { key: 'backups', k: 'Backups', state: 'bad', status: 'None found', detail: 'No backup next to the database. The hourly job makes one a day.', fix: '#disk' }
-    : hoursSince(newest) > 36 ? { key: 'backups', k: 'Backups', state: 'bad', status: `Newest ${ageWords(newest)} old`, detail: `Newest ${at(newest)}. The hourly job should make one a day.`, fix: '#disk' }
+  out.push(!newest ? { key: 'backups', k: 'Backups', state: 'bad', status: 'None found', detail: 'No backup next to the database. The hourly job makes one a day.', fix: '#disk', todo: 'Ask Claude to check the hourly job. Hetzner\'s own daily backups of the whole server still run.' }
+    : hoursSince(newest) > 36 ? { key: 'backups', k: 'Backups', state: 'bad', status: `Newest ${ageWords(newest)} old`, detail: `Newest ${at(newest)}. The hourly job should make one a day.`, fix: '#disk', todo: 'Ask Claude to check the hourly job. Hetzner\'s own daily backups of the whole server still run.' }
       : { key: 'backups', k: 'Backups', state: 'ok', status: 'Up to date', detail: `Newest ${at(newest)}. ${n(backups.length)} kept.`, fix: '#disk' });
   const bots = db.prepare("SELECT count(DISTINCT ip) FROM visitor_day WHERE day >= date('now','-6 days') AND stopped > 0").pluck().get();
   out.push({ key: 'bots', k: 'Bots and scrapers', state: 'neutral', status: bots ? `${plural(bots, 'computer')} stopped` : 'None stopped',
@@ -822,8 +873,9 @@ async function health(db, { token }) {
   const checks = healthChecks(db), bad = checks.filter(c => c.state === 'bad'), by = Object.fromEntries(checks.map(c => [c.key, c]));
   const newestRun = db.prepare('SELECT max(finished_at) FROM job_run').pluck().get();
   const verdict = `<div class="verdict ${bad.length ? 'bad' : 'ok'}">${dotHtml(bad.length ? 'bad' : 'ok')}<div><b>${bad.length ? `${bad.length === 1 ? '1 thing needs' : `${bad.length} things need`} a look` : 'Everything is working'}</b>
-<span>${bad.length ? esc(bad.map(c => `${c.k}: ${/^[A-Z][a-z]/.test(c.status) ? c.status[0].toLowerCase() + c.status.slice(1) : c.status}`).join('. ')) + '.' : `${newestRun ? `Data update last ran ${esc(agoM(newestRun))}. ` : ''}When a data update step breaks you also get an email.`}</span></div></div>`;
-  const list = `<ul class="checks">${checks.map(c => `<li class="${c.state}">${dotHtml(c.state)}<span class="ck">${esc(c.k)}</span><span class="cs">${esc(c.status)}</span><span class="cd">${esc(c.detail)}</span><a class="cm" href="${c.fix}">Details</a></li>`).join('')}</ul>`;
+<span>${bad.length ? esc(bad.map(c => `${c.k}: ${/^[A-Z][a-z]+\b/.test(c.status) ? c.status[0].toLowerCase() + c.status.slice(1) : c.status}`).join('. ')) + '.'
+  + (bad.every(c => c.todo === WAIT) ? ' Nothing to do yet: it tries again every hour.' : ` What to do is on the red ${bad.length === 1 ? 'row' : 'rows'} below.`) : `${newestRun ? `Data update last ran ${esc(agoM(newestRun))}. ` : ''}When a data update step breaks you also get an email.`}</span></div></div>`;
+  const list = `<ul class="checks">${checks.map(c => `<li class="${c.state}">${dotHtml(c.state)}<span class="ck">${esc(c.k)}</span><span class="cs">${esc(c.status)}</span><span class="cd">${esc(c.detail)}${c.todo ? `<span class="todo"><b>What to do:</b> ${esc(c.todo)}</span>` : ''}</span><a class="cm" href="${c.fix}">Details</a></li>`).join('')}</ul>`;
 
   // Details, folded: each opens when its check is red.
   const runs = stepOrder(lastRuns(db));
@@ -860,6 +912,8 @@ ${note('Countries: <a href="https://db-ip.com">IP Geolocation by DB-IP</a> (CC B
 export const PAGES_BY_ROUTE = {
   '/admin': today, '/admin/people': people, '/admin/people/:id': person, '/admin/people/:id/delete': deletePage, '/admin/money': moneyPage,
   '/admin/growth': growth, '/admin/interest': interest, '/admin/health': health,
+  // Review (src/review.js): ?by= records who acted (a script: by=bot), ?all=1 shows what is hidden, ?done= what the last action did.
+  '/admin/review': (db, { token, query }) => shell(db, 'Review', '/review', reviewBody(db, { by: /^[a-z]{1,20}$/.test(query.by || '') ? query.by : '', all: query.all === '1', done: String(query.done || '').slice(0, 200) }), token),
 };
 // Old addresses from step 2.
 export const MOVED = { '/admin/accounts': '/admin/people', '/admin/accounts/:id': '/admin/people/:id', '/admin/inbox': '/admin', '/admin/system': '/admin/health', '/admin/emails': '/admin/health', '/admin/visitors': '/admin/growth', '/admin/usage': '/admin/interest' };

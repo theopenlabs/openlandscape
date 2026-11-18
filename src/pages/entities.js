@@ -2,7 +2,7 @@
 // a drug or a company is followed on its own, a target as a landscape. Data: src/query.js and src/entityquery.js. Script: web/entity.js.
 import { esc, rowsHTML, explainHTML, landscapeBody, shortDate, milestonePlain, stagePlain, meter, drugName, sourcesRow, cleanAliases } from '../../web/table.js';
 import { icon } from '../../web/icons.js';
-import { BRAND, prettyDate, layout, footer, pageHead } from './shared.js';
+import { BRAND, prettyDate, layout, footer, pageHead, orgRef, siteUrl } from './shared.js';
 import { nextOf } from '../entityquery.js';
 import { eventWords } from './app.js';
 import { today } from '../query.js';
@@ -68,7 +68,7 @@ const feed = (rows, max, label) => rows.length ? `<ul class="feed efeed"${max &&
 // ---------- drug page ----------
 // Header (name, owners and codes, the Follow button), the plain sentence, four facts, what it is, what is coming and what
 // changed, then every trial once with its number in each registry (15 part 5).
-export function drugPage(d, { user, paid = false, following = null, notice = null, trials = d.trials, euStage = null, inLandscapes = [], side = '', signin = null } = {}) {
+export function drugPage(d, { tested = d.tested_for, related = null, user, paid = false, following = null, notice = null, trials = d.trials, euStage = null, inLandscapes = [], side = '', signin = null } = {}) {
   const ex = explainHTML(d.explain, { mechConfirmed: d.mechanism_confirmed });
   const owners = d.companies.length ? d.companies.map(c => `<a href="${companyHref(c.id)}">${esc(c.name)}</a>`).join(' · ') : d.company ? `<a href="${companyHref(d.company)}">${esc(d.company)}</a>` : '';
   const names = cleanAliases(d.name, d.aliases);   // without repeats or the registry's leftovers (web/table.js)
@@ -82,7 +82,7 @@ export function drugPage(d, { user, paid = false, following = null, notice = nul
   const what = [
     ['How it works', ex.plain ? `${ex.plain}<span class="d">${ex.term}</span>` : ex.term],
     given && ['How it’s given', quote(given, 400)],
-    d.tested_for.length && ['Tested for', `${d.tested_for.slice(0, 8).map(c => `${esc(c.name)}${c.trials > 1 ? ` <span class="muted">(${c.trials} trials)</span>` : ''}`).join(', ')}${d.tested_for.length > 8 ? ` <span class="muted">and ${d.tested_for.length - 8} more</span>` : ''}`],
+    tested.length && ['Tested for', `${tested.slice(0, 8).map(c => `${c.slug ? `<a href="/diseases/${esc(c.slug)}">${esc(c.name)}</a>` : esc(c.name)}${c.trials > 1 ? ` <span class="muted">(${c.trials} trials)</span>` : ''}`).join(', ')}${tested.length > 8 ? ` <span class="muted">and ${tested.length - 8} more</span>` : ''}`],
     d.summary && [`Main trial${d.summary.phase ? `<span class="d">${esc(d.summary.phase)}</span>` : ''}`, quote(d.summary, 600)],
     names.length && ['Other names', names.map(a => esc(a.name) + (a.confirmed ? '' : ' (unconfirmed)')).join(' · ')],
     d.other_use && ['Also', extl(d.other_use.url, esc(d.other_use.label))],
@@ -114,6 +114,8 @@ export function drugPage(d, { user, paid = false, following = null, notice = nul
   return layout({
     title: `${drugName(d.name)}: trials, stage and next milestones | ${BRAND}`, user, side, noindex: !d.curated, path: `/drugs/${encodeURIComponent(d.id)}`,
     image: `/img/og/drugs/${encodeURIComponent(d.id)}.png`,
+    ld: [{ '@type': 'Drug', name: drugName(d.name), url: siteUrl() + drugHref(d.id), ...(names.length ? { alternateName: names.map(a => a.name).slice(0, 20) } : {}),
+      ...(d.company ? { manufacturer: { '@type': 'Organization', name: d.company } } : {}), subjectOf: { '@type': 'WebPage', url: siteUrl() + drugHref(d.id), publisher: orgRef() } }],
     desc: `${drugName(d.name)}${d.company ? ` (${d.company})` : ''}: ${d.stage.label}, ${d.active_trials} active trials, next milestones and every source.`,
     body: `<main class="wrap ent ds">
 ${inLandscapes.length ? `<div class="crumbs">In: ${inLandscapes.map(l => `<a href="/landscapes/${l.slug}">${esc(l.title)}</a>`).join(', ')}</div>` : ''}
@@ -126,6 +128,8 @@ ${stats([
     ['Targets', d.targets.length ? targetLinks(d.targets) : '—', d.targets.length ? '' : 'None known yet'],
   ])}
 ${section('info', 'What this is', '', `<dl class="rows">${what.map(([k, v]) => `<div${/^(How it’s given|Main trial)/.test(k) ? ' class="deskonly"' : ''}><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`)}
+${related ? section('pulse', `Other drugs for ${esc(related.name)}`, '', `<ul class="feed efeed">${related.drugs.map(p => `<li><span class="who"><a class="plainlink" href="${drugHref(p.id)}"><b>${esc(drugName(p.drug))}</b></a></span><span class="ev">${esc(p.company || '')}<span class="src"> · ${esc(p.phase.label)}</span></span></li>`).join('')}</ul>
+<a class="boxfoot boxlink" href="/diseases/${esc(related.slug)}">${icon('chevron', 16)}All ${related.total} drugs for ${esc(related.name)}</a>`) : ''}
 ${d.copies?.length ? section('pill', 'Copies tested against it', d.copies.length, `<p class="boxnote">Other companies’ versions, mostly cheaper copies for when the patent ends</p>
 <ul class="feed efeed">${d.copies.map(c => `<li><span class="who"><a class="plainlink" href="${drugHref(c.id)}"><b>${esc(c.name)}</b></a></span><span class="ev">${esc(c.sponsor)}<span class="src"> · ${c.trials.map(n => extl(`https://clinicaltrials.gov/study/${n}`, esc(n))).join(', ')}${c.active ? '' : ' · finished'}</span></span></li>`).join('')}</ul>`) : ''}
 <div class="duo">${section('calendar', 'Coming up', coming.length, feed(coming, 6, 'dates') || '<p class="muted nothing">No dates coming up.</p>')}
@@ -178,6 +182,7 @@ export function companyPage(c, { user, paid = false, following = null, notice = 
   ].filter(Boolean);
   return layout({
     title: `${c.name}: drug pipeline and trials | ${BRAND}`, user, side, noindex: !c.curated, path: `/companies/${encodeURIComponent(c.id)}`,
+    ld: [{ '@type': 'WebPage', name: `${c.name}: drug pipeline and trials`, url: siteUrl() + companyHref(c.id), publisher: orgRef(), about: { '@type': 'Organization', name: c.name } }],
     desc: `${c.name}: ${c.drugs_total} drugs, ${c.trials.active} active industry trials, each linked to its source.`,
     body: `<main class="wrap ent ds">
 <div class="crumbs"><a href="/landscapes">Landscapes</a> / Companies</div>

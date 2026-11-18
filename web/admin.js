@@ -25,3 +25,20 @@ document.querySelectorAll('.adm tr.drow').forEach(r => {
   r.addEventListener('click', e => { if (!e.target.closest('a')) toggle(); });
   r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
 });
+// Today's "⋯" menus: Add a note opens the row's note field; a click elsewhere or Escape closes an open menu.
+document.addEventListener('click', e => {
+  const add = e.target.closest('[data-note]');
+  if (add) { const f = add.closest('form'), i = f.querySelector('.nnote'); i.hidden = false; add.closest('details').open = false; i.focus(); return; }
+  document.querySelectorAll('.adm details.pm[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; });
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.adm details.pm[open]').forEach(d => { d.open = false; }); });
+// Review: J and K move between items, P and D press Publish and Dismiss on the one you are on (the buttons say which).
+const cards = [...document.querySelectorAll('.adm .rv[tabindex]')];
+if (cards.length) document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest('input,textarea,select')) return;
+  const i = cards.indexOf(document.activeElement.closest?.('.rv'));
+  const go = c => { if (c) { c.focus(); c.scrollIntoView({ block: 'center', behavior: 'smooth' }); } };
+  if (e.key === 'j') go(cards[i + 1] || cards[0]);
+  else if (e.key === 'k') go(cards[Math.max(0, i - 1)]);
+  else if ((e.key === 'p' || e.key === 'd') && i >= 0) { const b = cards[i].querySelector(`[data-key="${e.key}"]`); if (b) { cards[i].classList.add('done'); b.click(); } }
+});

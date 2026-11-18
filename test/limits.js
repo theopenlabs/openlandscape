@@ -63,6 +63,18 @@ ok(L.countPage('10.0.0.1', new Date('2026-11-17T00:05:00Z')), 'and again the nex
 ok(L.countPage('2001:db8:abcd:12::9', t0) && !(() => { for (let i = 0; i < 59; i++) L.countPage(`2001:db8:abcd:12::${i + 10}`, t0); return L.countPage('2001:db8:abcd:12:ffff::1', t0); })(), 'addresses in one IPv6 block share the limit');
 ok(!(await L.isSearchBot('Mozilla/5.0 (compatible; Googlebot/2.1)', '10.0.0.1')), 'a script calling itself Googlebot is not let through');
 ok(!(await L.isSearchBot('Mozilla/5.0 Chrome', '66.249.66.1')), 'a browser is not a search bot');
+// AI crawlers: the published lists, loaded here by hand (no network in the check).
+for (const u of ['https://openai.com/gptbot.json', 'https://openai.com/searchbot.json', 'https://openai.com/chatgpt-user.json']) L.aiList(u, { prefixes: u.includes('gptbot') ? [{ ipv4Prefix: '192.0.2.0/24' }, { ipv6Prefix: '2001:db8:aa::/48' }] : [] });
+for (const u of ['https://www.perplexity.com/perplexitybot.json', 'https://www.perplexity.com/perplexity-user.json']) L.aiList(u, { prefixes: [{ ipv4Prefix: '198.51.100.7/32' }] });
+L.aiList('https://claude.com/crawling/bots.json', { prefixes: [{ ipv4Prefix: '203.0.113.0/24' }] });
+const bot = n => `Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ${n}/1.1; +https://example.com/bot)`;
+ok(await L.isAiCrawler(bot('GPTBot'), '192.0.2.44') && await L.isAiCrawler(bot('GPTBot'), '2001:db8:aa:1::5'), "OpenAI's crawler from an address on its list passes");
+ok(await L.isAiCrawler(bot('PerplexityBot'), '198.51.100.7') && await L.isAiCrawler(bot('ClaudeBot'), '203.0.113.9'), "Perplexity's and Anthropic's crawlers from their lists pass");
+ok(!(await L.isAiCrawler(bot('GPTBot'), '10.0.0.1')) && !(await L.isAiCrawler(bot('ClaudeBot'), '192.0.2.44')), "a crawler's name from an address not on its company's list keeps the normal limit");
+ok(!(await L.isAiCrawler(bot('SomeAIBot'), '192.0.2.44')) && !(await L.isAiCrawler('Mozilla/5.0 Chrome', '192.0.2.44')), 'a crawler with no list, or a browser, keeps the normal limit');
+{ const t = new Date('2026-11-16T10:05:00Z');
+  let n = 0; while (n < 3000 && await L.isAiCrawler(bot('OAI-SearchBot'), '192.0.2.50', t)) n++;
+  ok(n === L.AI_PAGES_AN_HOUR && await L.isAiCrawler(bot('OAI-SearchBot'), '192.0.2.50', new Date('2026-11-16T11:05:00Z')), `each crawler passes ${n} pages an hour, then the normal limit; the next hour again`); }
 
 // ---- new accounts ----
 ok(L.emailKey('Jane.Doe+ol@gmail.com') === 'janedoe@gmail.com' && L.emailKey('jane.doe+x@acme.com') === 'jane.doe@acme.com' && L.emailKey('j.d@googlemail.com') === 'jd@gmail.com', 'the inbox behind an address');

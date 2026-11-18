@@ -6,7 +6,7 @@
 // many of the trials the registry tags with the disease the search found.
 import { readFileSync, existsSync } from 'node:fs';
 import { getDb } from './db.js';
-import { anyOrder, foldText, loadStamp } from './query.js';
+import { anyOrder, foldText, loadStamp, landscape, endOf } from './query.js';
 
 const ACTIVE = new Set(['RECRUITING', 'NOT_YET_RECRUITING', 'ACTIVE_NOT_RECRUITING', 'ENROLLING_BY_INVITATION']);
 
@@ -244,4 +244,67 @@ export function placement() {
   const c = { solo: 0, lift: 0, model: 0, mixed: 0, untagged: 0, total: wordings.size };
   for (const w of wordings.values()) c[w.how]++;
   return c;
+}
+
+// ---------- a disease page's drugs (step 18, 18 Nov 2026) ----------
+// The drugs in the active trials tagged with the disease or one under it, at any stage: the same trials the page counts, so
+// the list and its number agree (a Search for the name reads titles and drug names, and differs on about 60 pages). Drugs
+// still in development come first (Filed, Phase 3 … Phase 1), approved and marketed ones after; within a stage the soonest
+// next date first. Signed out a page shows the top DISEASE_TOP; signed in the whole list, cut at DISEASE_CAP.
+export const DISEASE_TOP = 10, DISEASE_CAP = 500;
+export function diseaseDrugs(slug) {
+  const { nodes, bySlug, status } = diseaseMap();
+  const term = bySlug.get(slug); if (!term) return null;
+  const ncts = new Set();
+  for (const k of subtree(term)) for (const n of nodes.get(k).trials) if (ACTIVE.has(status.get(n))) ncts.add(n);
+  const L = ncts.size ? landscape({ area: prettyTerm(term), phase_min: 0, limit: 1e6, ncts })
+    : { area: prettyTerm(term), programs: [], stats: { programs: 0, trials: 0, by_phase: [], china: 0 } };
+  const ordered = [...L.programs.filter(p => p.phase.level < 5), ...L.programs.filter(p => p.phase.level >= 5)];
+  // The next result that matters: the soonest date of a drug in Phase 3 or filed (old drugs' Phase 4 trials and early trials skipped).
+  const late = ordered.filter(p => p.phase.level >= 3 && p.phase.level < 5 && p.next_catalyst)
+    .sort((x, y) => endOf(x.next_catalyst.date).localeCompare(endOf(y.next_catalyst.date)))[0];
+  const { programs: _, summary: __, ...rest } = L;
+  return { ...rest, programs: ordered.slice(0, DISEASE_CAP), late: late ? { id: late.id, drug: late.drug, when: late.next_catalyst.label || late.next_catalyst.date } : null };
+}
+// What a signed-out page needs, kept in memory for every disease (src/diseasetop.js): the counts, the next result and the top rows.
+export const diseaseSummary = L => ({ area: L.area, stats: L.stats, late: L.late, programs: L.programs.slice(0, DISEASE_TOP) });
+
+// The name people search for, when the registry's term is not it: "Breast Neoplasms" -> "Breast Cancer", "Type 2 Diabetes
+// Mellitus" -> "Type 2 Diabetes", "Non-Small-Cell Lung Carcinoma" -> "Non-small Cell Lung Cancer". Used only when trials
+// themselves write it that way (a listed condition with at least 3 active trials): 36 pages on 17 Nov data. null: the name is fine.
+const foldW = s => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+let plainMemo = null;
+export function plainName(name) {
+  const m = diseaseMap();
+  if (plainMemo?.stamp !== m.stamp) {
+    const byFold = new Map();
+    for (const w of m.wordings.values()) { const k = foldW(w.label), c = byFold.get(k); if (!c || c.active < w.active) byFold.set(k, w); }
+    plainMemo = { stamp: m.stamp, byFold };
+  }
+  for (const [re, to] of [[/\bNeoplasms?\b/, 'Cancer'], [/\bDiabetes Mellitus\b/, 'Diabetes'], [/\bLung Carcinoma\b/, 'Lung Cancer']]) {
+    if (!re.test(name)) continue;
+    const c = name.replace(re, to), w = plainMemo.byFold.get(foldW(c));
+    if (w && w.active >= 3) return c.replace(/\b(\w)(\w*)/g, (_, a, b) => a.toUpperCase() + b.toLowerCase()).replace(/\bAnd\b/g, 'and');
+  }
+  return null;
+}
+
+// ---------- links between pages (step 20, 18 Nov 2026) ----------
+// The disease page a trial's listed condition ("Breast Cancer") is placed on, for drug pages' "Tested for". null: none.
+// A wording placed from other conditions' tags in one or two trials can land wrong ("Chronic Low Back Pain" listed in a
+// retatrutide trial sits under Obesity), so those stay unlinked: only a wording trials list on its own, or one in 3+ trials.
+export function wordingSlug(label) {
+  const w = diseaseMap().wordings.get(String(label).trim().toLowerCase());
+  return w?.term && (w.how === 'solo' || w.n >= 3) ? termSlug(w.term) : null;
+}
+// Every disease page the sitemap lists, by name, for the /diseases index. `direct`: active trials tagged with the term
+// itself, so the broad headings ("Neoplasms by Site") that only gather others do not rank first.
+export function diseaseIndex() {
+  const { nodes } = diseaseMap(), seen = new Set(), out = [];
+  for (const n of nodes.values()) {
+    if (!(n.active > 0)) continue;
+    const slug = termSlug(n.name); if (seen.has(slug)) continue; seen.add(slug);
+    out.push({ name: plainName(n.name) || prettyTerm(n.name), slug, term: n.name, direct: n.active });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }

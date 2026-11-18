@@ -2,19 +2,20 @@
 import './env.js';
 import express from 'express';
 import { readFileSync } from 'node:fs';
-import { getDb } from './db.js';
+import { getDb, norm } from './db.js';
 import * as Q from './query.js';
 import * as A from './auth.js';
 import * as B from './billing.js';
-import { sendLoginEmail, sendTalkMessage, sendVariantNote } from './mail.js';
+import { sendAdminMail, sendLoginEmail, sendTalkMessage, sendVariantNote } from './mail.js';
 import { handleMcp, setLinkFor } from './mcp.js';
-import { oauthRouter } from './oauth.js';
+import { oauthRouter, pruneClients } from './oauth.js';
 import { timingSafeEqual, createHash } from 'node:crypto';
-import { breakdown, diseaseMap } from './diseasemap.js';
+import { breakdown, diseaseMap, diseaseDrugs, wordingSlug, diseaseIndex } from './diseasemap.js';
+import { diseaseTop, startDiseaseTop } from './diseasetop.js';
 import { termSlug } from './diseasemap.js';
 import { BRAND, layout } from './pages/shared.js';
 import { landingPage, pricingPage, howWeCheckPage, bakeoffPage, talkPage } from './pages/public.js';
-import { landscapePage, diseasePage, landscapesIndexPage } from './pages/landscapes.js';
+import { landscapePage, diseasePage, landscapesIndexPage, diseasesIndexPage } from './pages/landscapes.js';
 import { signinPage, signinBox } from './pages/signin.js';
 import { notFoundPage } from './pages/notfound.js';
 import { startPage, WELCOME_PATH, pickTo } from './pages/start.js';
@@ -27,6 +28,8 @@ import * as E from './entityquery.js';
 import { toCSV, drugName, creditLine, creditDay, creditPath, esc, limitBox } from '../web/table.js';
 import * as G from './google.js';
 import { privacyPage, termsPage } from './legal.js';
+import { llmsTxt, aiPage, aboutPage } from './pages/ai.js';
+import { INDEXNOW_KEY, pingIndexNow } from './indexnow.js';
 import { runMail, mailRouter, sendUpgrade, sendHello } from './digest.js';
 import { runWatch } from './watch.js';
 import * as V from './visits.js';
@@ -51,8 +54,20 @@ const origin = req => process.env.PUBLIC_URL || `${req.protocol}://${req.get('ho
 // Without DASHBOARD_URL (local), everything stays on one address and the dashboard is at /app.
 const DASH = process.env.DASHBOARD_URL || '';
 const DASH_HOST = DASH && new URL(DASH).hostname;
+// A post from another website. Browsers say so in Sec-Fetch-Site; older Safari does not send it, so then the Origin header
+// decides: present and not one of ours means another site. A request with neither (scripts, very old browsers) passes.
+const crossSite = req => {
+  const site = req.get('sec-fetch-site');
+  if (site) return site === 'cross-site';
+  const from = req.get('origin');
+  if (!from) return false;
+  const ours = [origin(req), DASH, process.env.PUBLIC_URL].filter(Boolean).map(o => { try { return new URL(o).origin; } catch { return ''; } });
+  return !ours.includes(from);
+};
 const dashOrigin = req => DASH || origin(req);
-const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=').map(decodeURIComponent)).filter(c => c[0]));
+// A cookie value that is not valid %-encoding is kept as it came (it used to throw, and one such request stopped the server).
+const readCookie = v => { try { return decodeURIComponent(v); } catch { return v; } };
+const cookies = req => Object.fromEntries((req.headers.cookie || '').split(';').map(c => c.trim().split('=').map(readCookie)).filter(c => c[0]));
 const COOKIE = 'op_session';
 // Shared by both addresses so the public site knows you are signed in, e.g. Domain=openlandscape.app
 const COOKIE_DOMAIN = process.env.COOKIE_DOMAIN ? `; Domain=${process.env.COOKIE_DOMAIN}` : '';
@@ -72,14 +87,17 @@ app.post('/billing/webhook', express.raw({ type: 'application/json' }), async (r
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: false }));
 // A page loaded in a browser (src/visits.js): counted, nothing sent back.
+// At most 300 an hour from one internet address: past that, nothing is written (one script could fill the table).
+const viewAllowed = hourCap(300, Infinity);
 app.post('/v', (req, res) => {
+  if (!ipAllowed(viewAllowed, req.ip)) return res.status(204).end();
   try { V.recordView(req.body, { ip: req.ip, ua: req.get('user-agent') || '', user: currentUser(req), host: req.get('host') || '' }); }
   catch (e) { console.error('visit', e.message); }
   res.status(204).end();
 });
 // Send each page to its own address. Only GET/HEAD are redirected; MCP, billing and static files work on both.
 const DASH_ONLY = /^\/(app(\/|$)|start(\/|$)|signin|auth\/|follow(\/|$)|api\/(landscape|suggest|follow|changes|areas|keys|connection))/;
-const BOTH = /^\/(static|mcp|billing|admin|authorize|oauth\/|\.well-known\/|robots\.txt$|sitemap\.xml$)/;
+const BOTH = /^\/(static|mcp|billing|admin|authorize|oauth\/|\.well-known\/|robots\.txt$|sitemap\.xml$|llms\.txt$)/;
 // Data pages (drug, company, disease, target, landscape) live on both: signed in on the dashboard's address, inside its
 // sidebar; signed out on the website's. 302, not 301: the answer depends on the visitor, so browsers must not keep it.
 const DATA_PAGE = /^\/(drugs|companies|targets|diseases|landscapes)(\/|$)/;
@@ -143,7 +161,10 @@ function keep(key, v) {
 const PUBLIC = {
   // chips: filters on the table (by drug tags); ask: example question for Claude; bakeoff: we tested this area against Claude with web search.
   // plain: the landscape's name for people outside the field (search page chips).
+  // seo: the browser tab title and search-result text, in the words people search with (the page's own stage only).
   obesity: { area: 'obesity', title: 'Obesity drug landscape', plain: 'Obesity drugs', short: 'Obesity', crumb: 'Metabolic', bakeoff: true,
+    seo: { title: 'Obesity drug pipeline: GLP-1 and other drugs in trials',
+      desc: (n, updated) => `${n} obesity drugs in Phase 2+ trials: GLP-1s like semaglutide and tirzepatide, amylin, oral pills and more. Each with its source. Updated ${updated}.` },
     chips: [['glp', 'GLP-1 based'], ['amylin', 'Amylin'], ['oral', 'Oral'], ['other', 'Other mechanisms']],
     ask: 'Which oral GLP-1s read out in the next six months?' },
   'pd1-vegf': { area: 'PD-1/VEGF', title: 'PD-(L)1 x VEGF bispecifics landscape', plain: 'Cancer drugs that block PD-1 and VEGF at once', short: 'PD-1/VEGF', crumb: 'Oncology',
@@ -188,11 +209,13 @@ const cutLine = (shown, total) => (total > shown ? `First ${shown.toLocaleString
 // What a list shows past the allowance (src/limits.js): a paid account the top 10, Free none.
 const overRows = (user, programs) => programs.slice(0, A.isPaid(user) ? LIM.TOP_WHEN_OVER : 0);
 // Public pages opened signed out (drug, company, target, disease and ready-made landscape pages): 60 an hour and 200 a day
-// per computer, then the sign-in page, which brings them back here. Google and Bing, checked by their address, pass.
+// per computer, then the sign-in page, which brings them back here. Google and Bing, checked by their address, pass, and so do
+// verified AI crawlers up to 2,000 pages an hour each (src/limits.js isAiCrawler).
 const PUBLIC_PAGE = /^\/(drugs|companies|targets|diseases)\/[^/]+$|^\/landscapes\/[^/.]+$/;
 app.use(async (req, res, next) => {
   if (req.method !== 'GET' || !PUBLIC_PAGE.test(req.path) || currentUser(req)) return next();
   if (await LIM.isSearchBot(req.get('user-agent'), req.ip)) return next();
+  if (await LIM.isAiCrawler(req.get('user-agent'), req.ip)) return next();
   if (LIM.countPage(req.ip, new Date(), req.get('user-agent'))) return next();
   res.redirect(302, `/signin?limit=1&next=${encodeURIComponent(req.originalUrl)}`);
 });
@@ -209,9 +232,21 @@ app.get('/start', (req, res) => {
   if (currentUser(req)) return res.redirect(resultsPath(q));
   res.redirect(`/signin?next=${encodeURIComponent(resultsPath(q) + '&s=landing')}`);
 });
+// Links to the disease pages (step 20). Drug counts come from the helper's kept top 10 (src/diseasetop.js); a disease it has
+// not reached yet shows without a count. "Browse by disease": the 30 with most trials tagged with the disease itself.
+const BROWSE_SKIP = new Set(['Recurrence', 'Neoplasm Metastasis']);   // registry terms that are not a disease people look up
+const diseasesCounted = () => cached('DI', () => diseaseIndex()).map(x => ({ ...x, drugs: diseaseTop(x.slug)?.stats.programs ?? null }));
+const browseDiseases = () => {
+  const all = diseasesCounted();
+  return { total: all.length, top: all.filter(x => !BROWSE_SKIP.has(x.term)).sort((a, b) => b.direct - a.direct).slice(0, 30).sort((a, b) => a.name.localeCompare(b.name)) };
+};
+app.get('/diseases', (req, res) => {
+  const user = currentUser(req);
+  res.send(diseasesIndexPage(diseasesCounted(), { user, side: sideFor(user) }));
+});
 app.get('/landscapes', (req, res) => {
   const user = currentUser(req);
-  res.send(landscapesIndexPage(showcaseList(), { user, paid: !!user && A.isPaid(user), side: sideFor(user) }));
+  res.send(landscapesIndexPage(showcaseList(), { user, paid: !!user && A.isPaid(user), side: sideFor(user), browse: browseDiseases() }));
 });
 // Downloads are part of Solo (15 Nov 2026: this file was open to anyone before, though its button was Solo only). Signed out it
 // asks to sign in; on Free it shows Pricing.
@@ -240,12 +275,13 @@ app.get('/landscapes/:slug', (req, res) => {
 // top 20, and the meter above the list says why. Returns null for the full list, else { rows, after, top } (after: the box under
 // the rows, signed out; top: the meter above the list, signed in).
 const PAGE_TOP = 20;
-function listCut(user, programs, next) {
+// `total`: the list's whole count when `programs` is already cut (a disease page's list stops at 500).
+function listCut(user, programs, next, total = programs.length) {
   if (user) {
     const u = LIM.useDrugs(user, programs.map(p => p.id));
     if (u.ok) return null;
     const then = { tomorrow: 'The rest open tomorrow.', later: 'The rest open as room frees up.', free: 'Solo shows every list in full.' }[u.note.when];
-    return { rows: programs.slice(0, PAGE_TOP), top: limitBox({ ...u.note, say: `Showing the top ${PAGE_TOP} of ${programs.length}. ${then}` }) };
+    return { rows: programs.slice(0, PAGE_TOP), top: limitBox({ ...u.note, say: `Showing the top ${PAGE_TOP} of ${total.toLocaleString('en-US')}. ${then}` }) };
   }
   if (programs.length <= PAGE_TOP) return null;
   return { rows: programs.slice(0, PAGE_TOP), after: `<div class="offer"><h3>See all ${programs.length} drugs</h3><p>Sign in free to see the whole list. No card, no password.</p><a class="btn primary" href="/signin?next=${encodeURIComponent(next)}">Sign in free</a></div>` };
@@ -263,16 +299,35 @@ app.get('/drugs/:id', (req, res) => {
     const title = { tomorrow: 'This drug opens tomorrow', later: 'This drug opens as room frees up', free: 'This drug is past your free drugs' }[u.note.when];
     return res.status(429).send(notFoundPage({ kind: 'limit', user, title, box: limitBox({ ...u.note, say: "Anything you've already opened works as usual." }), side: sideFor(user), showcase: [] }));
   }
-  res.send(drugPage(d, { user, paid, following, notice: entityNotice(req, user), trials: cached('DT:' + d.id, () => E.drugTrials(d)), euStage: E.euStage(d.id), inLandscapes, side: sideFor(user, following ? 'l' + following.id : ''), signin: boxFor(req, user) }));
+  // Its diseases linked, and other drugs for the first one that has a kept list (step 20).
+  const tested = d.tested_for.map(c => ({ ...c, slug: wordingSlug(c.name) }));
+  const near = tested.find(c => c.slug && diseaseTop(c.slug)?.programs.some(p => p.id !== d.id));
+  const nt = near && diseaseTop(near.slug);
+  const related = nt ? { name: near.name, slug: near.slug, total: nt.stats.programs, drugs: nt.programs.filter(p => p.id !== d.id).slice(0, 6) } : null;
+  res.send(drugPage(d, { tested, related, user, paid, following, notice: entityNotice(req, user), trials: cached('DT:' + d.id, () => E.drugTrials(d)), euStage: E.euStage(d.id), inLandscapes, side: sideFor(user, following ? 'l' + following.id : ''), signin: boxFor(req, user) }));
 });
+// A disease page's drugs (step 18). Signed out (and Google) it reads the top 10 the helper keeps (src/diseasetop.js) and never
+// builds a list; before the helper reaches it, the page shows without one. Signed in it builds the whole list (up to 500),
+// kept 10 minutes, under the 30-a-minute landscape limit, and counted toward the account's different drugs like company pages.
 app.get('/diseases/:slug', (req, res) => {
   const d = cached('DM:' + req.params.slug, () => breakdown(req.params.slug));
   if (!d) return notFound(req, res, 'disease');
   if (d.slug !== req.params.slug) return res.redirect(301, `/diseases/${d.slug}`);   // an old address (number first)
   const user = currentUser(req);
-  res.send(diseasePage(d, { user, side: sideFor(user), updated: Q.dataDates().trials }));
+  let list = diseaseTop(d.slug), cut = null;
+  if (user) {
+    if (!cache.has('DL:' + d.slug) && landscapeBusy(user)) return res.status(429).type('text/plain').send(BUSY_MSG);
+    list = cached('DL:' + d.slug, () => diseaseDrugs(d.slug));
+    cut = listCut(user, list.programs, req.originalUrl, list.stats.programs);
+    if (cut) list = { ...list, programs: cut.rows };
+  }
+  res.send(diseasePage(d, { user, side: sideFor(user), updated: Q.dataDates().trials, list, meter: cut?.top || '' }));
 });
 app.get('/companies/:id', (req, res) => {
+  // A company page not built yet runs a landscape search (up to a second): signed in, under the 30-a-minute limit
+  // (signed out, the page limit above applies).
+  const signedIn = currentUser(req);
+  if (signedIn && !cache.has('CV:' + req.params.id) && landscapeBusy(signedIn)) return res.status(429).type('text/plain').send(BUSY_MSG);
   const c = cached('CV:' + req.params.id, () => E.companyView(req.params.id));
   if (!c) return notFound(req, res, 'company');
   const user = currentUser(req), paid = !!user && A.isPaid(user), following = followOf(user, 'company', c.id);
@@ -310,19 +365,22 @@ app.get('/pricing', (req, res) => res.send(pricingPage({ user: currentUser(req),
 // show: the website's own, the ready-made landscapes, every checked drug and company, and each disease page with active trials.
 app.get('/robots.txt', (req, res) => {
   if (DASH && req.hostname === DASH_HOST) return res.type('text/plain').send('User-agent: *\nDisallow: /\n');
-  res.type('text/plain').send(['User-agent: *', ...['/app', '/signin', '/auth/', '/api/', '/billing/', '/oauth/', '/authorize', '/follow', '/start', '/admin', '/mcp', '/unsubscribe'].map(p => `Disallow: ${p}`),
+  // AI crawlers are named and welcome (18 Nov 2026, step 20): signed out the pages show the top of each list, so being
+  // read by AI search and training means being named in AI answers. They follow the same rules as everyone else.
+  const AI_BOTS = ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'ClaudeBot', 'Claude-SearchBot', 'Claude-User', 'PerplexityBot', 'Perplexity-User', 'Google-Extended', 'Applebot-Extended', 'CCBot'];
+  res.type('text/plain').send([...AI_BOTS.map(b => `User-agent: ${b}`), 'User-agent: *', ...['/app', '/signin', '/auth/', '/api/', '/billing/', '/oauth/', '/authorize', '/follow', '/start', '/admin', '/mcp', '/unsubscribe'].map(p => `Disallow: ${p}`),
     '', `Sitemap: ${siteBase(req)}/sitemap.xml`, ''].join('\n'));
 });
 const siteBase = req => (process.env.PUBLIC_URL || origin(req)).replace(/\/$/, '');
-app.get('/sitemap.xml', (req, res) => {
-  const base = siteBase(req);
-  const paths = cached('sitemap', () => {
+const sitemapPaths = () => cached('sitemap', () => {
     const db = getDb(), { nodes } = diseaseMap();
-    return ['/', '/landscapes', '/pricing', '/connect', '/how-we-check', '/docs/bakeoff-obesity', ...Object.keys(PUBLIC).map(s => `/landscapes/${s}`),
+    return ['/', '/landscapes', '/diseases', '/pricing', '/connect', '/how-we-check', '/about', '/ai', '/docs/bakeoff-obesity', ...Object.keys(PUBLIC).map(s => `/landscapes/${s}`),
       ...db.prepare('SELECT id FROM program WHERE curated=1 ORDER BY id').pluck().all().map(drugHref),
       ...db.prepare('SELECT id FROM company ORDER BY id').pluck().all().map(companyHref),
       ...[...nodes.values()].filter(n => n.active > 0).map(n => `/diseases/${termSlug(n.name)}`).sort()];
-  });
+});
+app.get('/sitemap.xml', (req, res) => {
+  const base = siteBase(req), paths = sitemapPaths();
   res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${paths.map(p => `<url><loc>${esc(base + p)}</loc></url>`).join('\n')}\n</urlset>\n`);
 });
 // OpenAI's domain check for the ChatGPT app (16 Nov 2026). The token is public by design (OpenAI reads it here), so it lives in the code.
@@ -331,6 +389,12 @@ app.get('/.well-known/openai-apps-challenge', (req, res) => res.type('text/plain
 app.get('/skill/SKILL.md', (req, res) => res.type('text/markdown').send(readFileSync(new URL('../client/skills/openlandscape/SKILL.md', import.meta.url), 'utf8')));
 // The setup prompt that "Copy setup prompt" copies, for agents that would rather fetch it.
 app.get('/setup.md', (req, res) => res.type('text/markdown').send(setupPrompt(origin(req))));
+// For AI tools (step 20): the site in plain text (llmstxt.org), the same facts as a page, and who we are.
+app.get('/llms.txt', (req, res) => res.type('text/plain; charset=utf-8').send(llmsTxt()));
+app.get('/ai', (req, res) => { const user = currentUser(req); res.send(aiPage({ user, side: sideFor(user) })); });
+app.get('/about', (req, res) => { const user = currentUser(req); res.send(aboutPage({ user, side: sideFor(user) })); });
+// IndexNow (Bing, which ChatGPT search reads, and Yandex): the key file that proves the site is ours.
+app.get(`/${INDEXNOW_KEY}.txt`, (req, res) => res.type('text/plain').send(INDEXNOW_KEY));
 app.get('/privacy', (req, res) => res.send(privacyPage({ user: currentUser(req) })));
 app.get('/terms', (req, res) => res.send(termsPage({ user: currentUser(req) })));
 app.get('/docs/bakeoff-obesity', (req, res) => { const user = currentUser(req); res.send(bakeoffPage({ user, side: sideFor(user) })); });
@@ -354,7 +418,7 @@ app.post('/talk', async (req, res) => {
   if (!message) return res.send(talkPage({ user, form, back, bad: 'message' }));
   const db = getDb();
   const recent = db.prepare("SELECT count(*) FROM area_request WHERE email=? AND page='talk' AND created_at > datetime('now','-10 minutes')").pluck().get(email);
-  if (recent >= 3 || !talkAllowed(req.ip)) return res.send(talkPage({ user, form, back, failed: true }));
+  if (recent >= 3 || !ipAllowed(talkAllowed, req.ip)) return res.send(talkPage({ user, form, back, failed: true }));
   try {
     db.prepare("INSERT INTO area_request (email, area, role, page, referrer, message, company) VALUES (?,?,?,?,?,?,?)")
       .run(email, 'Talk to us', '', 'talk', String(req.get('referer') || '').slice(0, 300), message, company);
@@ -366,7 +430,7 @@ app.post('/talk', async (req, res) => {
 app.post('/api/request', (req, res) => {
   const { email = '', area = '', role = '', page = '' } = req.body || {};
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !area.trim()) return res.status(400).json({ error: 'Email and landscape are required.' });
-  if (!requestAllowed(req.ip)) return res.status(429).json({ error: 'Too many requests. Try again in an hour.' });
+  if (!ipAllowed(requestAllowed, req.ip)) return res.status(429).json({ error: 'Too many requests. Try again in an hour.' });
   getDb().prepare('INSERT INTO area_request (email, area, role, page, referrer) VALUES (?,?,?,?,?)')
     .run(email.trim().slice(0, 200), area.trim().slice(0, 200), String(role).slice(0, 40), String(page).slice(0, 100), String(req.get('referer') || '').slice(0, 300));
   res.json({ ok: true });
@@ -410,8 +474,14 @@ const freeCanKeep = n => { const a = followArgs(Object.fromEntries(new URLSearch
 function followName(o) {
   const a = followArgs(o);
   if (!a.kind) return String(a.query || '').trim() ? heading(String(a.query).trim()) : '';
-  const e = a.kind === 'drug' ? cached('D:' + a.ref, () => Q.drug(a.ref)) : cached('CV:' + a.ref, () => E.companyView(a.ref));
-  return e ? drugName(e.name) : '';
+  // The name only, from the tables: building the drug or company page here let anyone signed out run page builds unlimited.
+  const db = getDb(), ref = String(a.ref || '');
+  // A drug by its id, an alias or a merged id, as Q.drug finds it.
+  const name = a.kind === 'drug' ? db.prepare('SELECT name FROM program WHERE id=?').pluck().get(ref)
+      || db.prepare('SELECT p.name FROM drug_alias d JOIN program p ON p.id=d.drug_id WHERE d.alias_norm=?').pluck().get(norm(ref))
+      || db.prepare("SELECT p.name FROM program_merge m JOIN program p ON p.id=m.program_id WHERE m.member_id=? AND m.role='merged'").pluck().get(ref)
+    : db.prepare('SELECT name FROM company WHERE id=?').pluck().get(ref) || (db.prepare('SELECT 1 FROM trial WHERE sponsor=? LIMIT 1').get(ref) ? ref : '');
+  return name ? drugName(name) : '';
 }
 const lastGoogle = req => { const e = cookies(req)[GLAST] || ''; return okEmail(e) ? e : ''; };
 const inBox = req => req.get('X-Signin-Box') === '1';
@@ -471,24 +541,35 @@ app.get('/signin', (req, res) => {
   if (n) res.setHeader('Set-Cookie', `${NEXT}=${encodeURIComponent(n)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${PROD ? '; Secure' : ''}`);
   sendSignin(req, res, { next: n });
 });
-// Sign-in emails: besides 3 per address in 10 minutes, at most 10 an hour from one internet address and 300 an hour in all,
+// Sign-in emails: besides 3 per address in 10 minutes, at most 10 an hour from one internet address and a total an hour,
 // so nobody can flood an inbox or use up the email service. Kept in memory (one server; a restart starts again).
+// Existing accounts have their own total: made-up addresses that use up the new-address total cannot stop members signing in.
+// Notes to another form of an existing address (+tag, Gmail dots) count per inbox: 3 an hour.
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
-const MAIL_PER_IP = 10, MAIL_ALL = 300;
-const mailAllowed = hourCap(MAIL_PER_IP, MAIL_ALL);
-// A counter per internet address and in all, started again every hour: true while both are under their limit (and counts it).
-function hourCap(perIp, all) {
-  let w = { since: Date.now(), all: 0, ip: new Map() };
-  return ip => {
-    if (Date.now() - w.since > 3600_000) w = { since: Date.now(), all: 0, ip: new Map() };
-    const n = w.ip.get(ip) || 0;
-    if (n >= perIp || w.all >= all) return false;
-    w.ip.set(ip, n + 1); w.all++;
+const MAIL_PER_IP = 10, MAIL_NEW_ALL = 300, MAIL_MEMBER_ALL = 1000, NOTES_PER_INBOX = 3;
+const mailNewAllowed = hourCap(MAIL_PER_IP, MAIL_NEW_ALL, 'new addresses'), mailMemberAllowed = hourCap(MAIL_PER_IP, MAIL_MEMBER_ALL, 'existing accounts');
+const noteAllowed = hourCap(NOTES_PER_INBOX, MAIL_NEW_ALL, 'notes to another form of an address');
+// A counter per key (an internet address, grouped as src/limits.js ipKey does, or an inbox) and in all, started again every hour:
+// true while both are under their limit (and counts it). The first time a sign-in total is reached in an hour, we get one email.
+function hourCap(perKey, all, what) {
+  let w = { since: Date.now(), all: 0, by: new Map(), told: false };
+  return key => {
+    if (Date.now() - w.since > 3600_000) w = { since: Date.now(), all: 0, by: new Map(), told: false };
+    const n = w.by.get(key) || 0;
+    if (what && w.all >= all && !w.told) {
+      w.told = true;
+      sendAdminMail({ subject: `Sign-in emails paused: ${all} an hour reached (${what})`, text: `The hourly total of sign-in emails to ${what} was reached at ${new Date().toISOString()}. Until the hour is up, more are refused ("Already sent"). If nobody is signing up in bulk, someone may be sending to made-up addresses. Google sign-in still works.` })
+        .catch(e => console.error('cap alert', e.message));
+    }
+    if (n >= perKey || w.all >= all) return false;
+    w.by.set(key, n + 1); w.all++;
     return true;
   };
 }
+// Every hourCap on internet addresses (sign-in emails, Talk to us, the wish list) groups them as src/limits.js ipKey does.
+const ipAllowed = (cap, ip) => cap(LIM.ipKey(ip));
 // Sign-in forms only from our own pages: another site cannot sign a visitor in to its account (login CSRF).
-app.post('/auth/*', (req, res, next) => (req.get('sec-fetch-site') === 'cross-site' ? res.status(403).send('Forbidden') : next()));
+app.post('/auth/*', (req, res, next) => (crossSite(req) ? res.status(403).send('Forbidden') : next()));
 app.post('/auth/start', async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase(), next = safeNext(req.body.next);
   if (!okEmail(email)) return sendSignin(req, res, { state: 'bademail', email });
@@ -498,12 +579,13 @@ app.post('/auth/start', async (req, res) => {
   // Another form of an existing account's address (+tag, Gmail dots): the usual "sent" screen, so the page never says that
   // an account exists; the note goes to that address, which reaches the account owner's own inbox.
   if (no === 'variant') {
-    if (mailAllowed(req.ip)) await sendVariantNote(email).catch(e => console.error('variant', e.message));
+    if (noteAllowed(LIM.emailKey(email)) && ipAllowed(mailNewAllowed, req.ip)) await sendVariantNote(email).catch(e => console.error('variant', e.message));
     return sendSignin(req, res, { state: 'sent', email });
   }
   if (no) return sendSignin(req, res, { state: no, email });
   const recent = getDb().prepare("SELECT count(*) FROM login_token WHERE email=? AND expires_at > datetime('now','+20 minutes')").pluck().get(email);
-  if (recent >= 3 || !mailAllowed(req.ip)) return sendSignin(req, res, { state: 'toomany', email });
+  const member = !!getDb().prepare('SELECT 1 FROM user WHERE email=?').get(email);
+  if (recent >= 3 || !ipAllowed(member ? mailMemberAllowed : mailNewAllowed, req.ip)) return sendSignin(req, res, { state: 'toomany', email });
   const { token, code } = A.createLogin(email);
   const link = `${dashOrigin(req)}/auth/verify?token=${token}${next ? `&next=${encodeURIComponent(next)}` : ''}`;
   try {
@@ -673,7 +755,12 @@ app.get(WELCOME_PATH, needPage, (req, res) => {
   const step = req.query.step === '2' ? 2 : 1;
   const q = String(req.query.q || '').trim().slice(0, 120), p = Math.min(5, Math.max(1, +req.query.p || 2));
   const readySlug = q && Object.keys(PUBLIC).find(k => PUBLIC[k].area.toLowerCase() === q.toLowerCase());
-  const pick = step === 1 && q ? { q, p, ready: readySlug ? `/landscapes/${readySlug}` : '', L: cached(`P:${q.toLowerCase()}|${p}`, () => Q.landscape({ area: q, phase_min: p, limit: 5 })) } : null;
+  // The five drugs shown: ones still in development before approved ones (17 Nov: old approved drugs came first).
+  const preview = L => ({ ...L, programs: [...L.programs.filter(x => x.phase.level < 5), ...L.programs.filter(x => x.phase.level >= 5)].slice(0, 5) });
+  // A preview not built yet is a landscape search: under the same 30-a-minute limit as the search box.
+  const pkey = `P:${q.toLowerCase()}|${p}`;
+  if (step === 1 && q && !cache.has(pkey) && landscapeBusy(req.user)) return res.status(429).type('text/plain').send(BUSY_MSG);
+  const pick = step === 1 && q ? { q, p, ready: readySlug ? `/landscapes/${readySlug}` : '', L: cached(pkey, () => preview(Q.landscape({ area: q, phase_min: p }))) } : null;
   const landscape = step === 2 ? followedAreas(req.user.id).find(x => String(x.id) === String(req.query.l)) || followedAreas(req.user.id)[0] || null : null;
   res.send(startPage({ user: req.user, step, pick, landscape, origin: origin(req), ai: step === 2 ? connectedApp(req.user.id) : null, from: fromPage(req.query.from) }));
 });
@@ -786,7 +873,9 @@ const LANDSCAPE_LIMIT_MSG = `The Free plan includes ${A.LIMITS.free.landscapes} 
 const SOLO_MSG = 'Following is part of Solo ($49 a month, excl. VAT): every change as it happens, and a Monday email.';
 // Suggestions as you type in the dashboard search box (src/suggest.js).
 app.get('/api/suggest', needUser, (req, res) => res.json(suggest(String(req.query.q || '').slice(0, 60))));
-// Landscapes are the heaviest question (a broad word takes seconds): at most 30 a minute for one account.
+// Landscapes are the heaviest question (a broad word takes seconds): at most 30 a minute for one account, counted together
+// for the search box, onboarding's preview and company pages not built yet.
+const BUSY_MSG = 'That is a lot of searches in a minute. Please wait a moment.';
 const landscapeRuns = new Map();
 const landscapeBusy = user => {
   const now = Date.now(), recent = (landscapeRuns.get(user.id) || []).filter(t => now - t < 60_000);
@@ -797,7 +886,7 @@ const landscapeBusy = user => {
 };
 app.get('/api/landscape', needUser, (req, res) => {
   const area = String(req.query.area || '').trim().slice(0, 120);
-  if (area && landscapeBusy(req.user)) return res.status(429).json({ error: 'That is a lot of searches in a minute. Please wait a moment.' });
+  if (area && landscapeBusy(req.user)) return res.status(429).json({ error: BUSY_MSG });
   // The setup guide's "Search something of your own" ticks on a search other than what they keep or follow: noted once per search.
   if (area && !getDb().prepare("SELECT 1 FROM usage WHERE user_id=? AND kind='search' AND lower(detail)=lower(?)").get(req.user.id, area)) A.logUsage(req.user.id, 'search', area);
   if (!area) return res.status(400).json({ error: 'Type what you are looking for.' });
@@ -885,7 +974,7 @@ function followGo(req, res, src) {
   const a = followArgs(src), back = a.kind ? `/follow?kind=${a.kind}&id=${encodeURIComponent(a.ref)}` : `/follow?q=${encodeURIComponent(String(a.query || '').trim().slice(0, 120))}&p=${+a.phase_min || 1}`;
   const user = currentUser(req);
   if (!user) return res.redirect(`/signin?next=${encodeURIComponent(back)}`);
-  if (req.method === 'GET' && req.get('sec-fetch-site') === 'cross-site') {
+  if (req.method === 'GET' && crossSite(req)) {
     const name = followName(src) || 'this';
     const fields = a.kind ? { kind: a.kind, id: a.ref } : { q: String(a.query || '').trim().slice(0, 120), p: +a.phase_min || 1 };
     return res.send(layout({ title: `Follow ${name} | ${BRAND}`, user, noindex: true, body: `<main class="wrap nf">\n<h1>Follow ${esc(name)}?</h1>\n<form method="post" action="/follow">${Object.entries(fields).map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join('')}<button class="btn primary" type="submit">Follow</button></form>\n</main>` }));
@@ -900,7 +989,7 @@ function followGo(req, res, src) {
   res.redirect(r.href);
 }
 app.get('/follow', (req, res) => followGo(req, res, req.query));
-app.post('/follow', (req, res) => (req.get('sec-fetch-site') === 'cross-site' ? res.status(403).send('Forbidden') : followGo(req, res, req.body)));
+app.post('/follow', (req, res) => (crossSite(req) ? res.status(403).send('Forbidden') : followGo(req, res, req.body)));
 app.delete('/api/follow/:id', needUser, (req, res) => { getDb().prepare('DELETE FROM saved_landscape WHERE id=? AND user_id=?').run(+req.params.id, req.user.id); res.json({ ok: true }); });
 // `name`: as the sidebar says it; `n`: changes in the last 14 days (paid), for the Follow box when every follow is used.
 app.get('/api/follow', needUser, (req, res) => res.json({ followed: followedAreas(req.user.id).map(f => ({ ...f, name: heading(f.query), n: A.isPaid(req.user) ? recentOf(f).count : undefined })) }));
@@ -945,8 +1034,12 @@ app.post('/api/keys', needUser, (req, res) => res.json({ key: A.createApiKey(req
 app.delete('/api/keys/:id', needUser, (req, res) => { A.revokeApiKey(req.user.id, +req.params.id); res.json({ ok: true }); });
 
 // ---------- billing ----------
+// Already on Solo: Choose Solo opens Stripe's billing page (or Home) instead of a second checkout, so two tabs cannot
+// make two subscriptions.
+const toBilling = async (user, req, res) => res.redirect(303, (await B.portalUrl(user, origin(req)).catch(() => null)) || home());
 app.post('/billing/checkout', async (req, res) => {
   const user = currentUser(req);
+  if (A.isPaid(user)) return toBilling(user, req, res);
   if (user) checkoutPressed(user, req);
   try { res.redirect(303, await B.createCheckout({ plan: req.body.plan, user, origin: origin(req) })); }
   catch (e) {
@@ -967,7 +1060,7 @@ const followThen = v => (/^\/follow\?/.test(safeNext(v)) ? safeNext(v) : '');
 app.get('/billing/solo', async (req, res) => {
   const user = currentUser(req), then = followThen(req.query.follow);
   if (!user) return res.redirect(`/signin?next=${encodeURIComponent(req.originalUrl)}`);
-  if (A.isPaid(user)) return res.redirect(then || home());
+  if (A.isPaid(user)) return then ? res.redirect(then) : toBilling(user, req, res);
   checkoutPressed(user, req, then);
   try { res.redirect(303, await B.createCheckout({ plan: req.query.plan === 'year' ? 'solo_year' : 'solo', user, origin: origin(req), then })); }
   catch (e) {
@@ -985,7 +1078,8 @@ app.get('/billing/success', async (req, res) => {
     if (!r) throw new Error('checkout not complete');
     // Paid from a Follow press: follow it now, then Home's welcome note says so.
     const then = followThen(req.query.follow), user = currentUser(req);
-    if (then && user && A.isPaid(user)) follow(user, followArgs(Object.fromEntries(new URLSearchParams(then.slice(8)))));
+    // Only for the person who paid: someone else's success link must not make this account follow something.
+    if (then && user && A.isPaid(user) && cs.metadata?.user_id === String(user.id)) follow(user, followArgs(Object.fromEntries(new URLSearchParams(then.slice(8)))));
     res.redirect(`/app?paid=${encodeURIComponent(r.plan || '')}`);
   } catch (e) {
     console.error('billing success', e.message);
@@ -1028,7 +1122,7 @@ for (const [from, to] of Object.entries(ADM.MOVED))
 // The actions (done, give Solo free, emails off, sign out everywhere, delete): POST, admin only, never from another site.
 for (const [path, act] of Object.entries(ADM.ACTIONS))
   app.post(path, (req, res) => {
-    if (!isAdmin(req) || req.get('sec-fetch-site') === 'cross-site') return res.status(404).send('Not found');
+    if (!isAdmin(req) || crossSite(req)) return res.status(404).send('Not found');
     const next = act(getDb(), { params: req.params, body: req.body || {}, by: currentUser(req)?.email || 'token' });
     if (!next) return res.status(404).send('Not found');
     cache.clear();   // a plan or an account changed: cached pages are drawn again
@@ -1062,16 +1156,19 @@ app.get('/admin/metrics', (req, res) => {
 // Review page (src/review.js): regulator news held for a person before it reaches the
 // feed, possible same-trial pairs, and a history with Undo. Admin only. `by` (e.g. &by=bot) records who acted; default team.
 const reviewer = req => /^[a-z]{1,20}$/.test(req.query.by || '') ? req.query.by : 'team';
-app.get('/admin/review', (req, res) => {
-  if (!isAdmin(req)) return res.status(404).send('Not found');
-  res.send(R.reviewPage(getDb(), { token: '', by: req.query.by && reviewer(req), all: req.query.all === '1', done: req.query.done }));
-});
 app.post('/admin/review/:id', (req, res) => {
-  if (!isAdmin(req) || req.get('sec-fetch-site') === 'cross-site') return res.status(404).send('Not found');
+  if (!isAdmin(req) || crossSite(req)) return res.status(404).send('Not found');
   const db = getDb(), id = +req.params.id, by = reviewer(req);
+  const list = s => String(s || '').split(',').map(Number).filter(Boolean);
+  // ids: Dismiss a whole group at once. also: other sentences of the same filing, dismissed with this item.
+  if (req.body.do === 'dismiss' && list(req.body.ids).length) {
+    const n = list(req.body.ids).filter(i => /^Dismissed/.test(R.dismissItem(db, i, by))).length;
+    return res.redirect(303, `/admin/review?${req.query.by ? `by=${encodeURIComponent(by)}&` : ''}done=${encodeURIComponent(`Dismissed ${n}. Nothing was published; each can be undone below.`)}`);
+  }
   const done = req.body.do === 'publish' ? R.publishItem(db, id, by) : req.body.do === 'apply' ? R.applyItem(db, id, by) : req.body.do === 'dismiss' ? R.dismissItem(db, id, by) : req.body.do === 'undo' ? R.undoItem(db, id) : 'Unknown action.';
+  if (['publish', 'dismiss'].includes(req.body.do)) for (const i of list(req.body.also)) R.dismissItem(db, i, by);
   if (req.body.do !== 'dismiss') cache.clear();   // drug pages are cached for 10 minutes
-  res.redirect(`/admin/review?${req.query.by ? `by=${encodeURIComponent(by)}&` : ''}done=${encodeURIComponent(done)}`);
+  res.redirect(303, `/admin/review?${req.query.by ? `by=${encodeURIComponent(by)}&` : ''}done=${encodeURIComponent(done)}`);
 });
 
 // ---------- pages that are not there ----------
@@ -1096,9 +1193,13 @@ setInterval(() => {
   // The weekly watch email to us (src/watch.js), whoever else gets email.
   runWatch().then(r => r.sent && console.log('watch', JSON.stringify(r))).catch(e => console.error('watch', e.message));
   try { V.pruneVisitors(); } catch (e) { console.error('prune visitors', e.message); }   // signed-out counts: 30 days
+  try { pruneClients(); } catch (e) { console.error('prune apps', e.message); }   // connector apps registered and never used: 1 day
   alertJobs().then(s => s.length && console.log('job alerts', s.join(' '))).catch(e => console.error('job alerts', e.message));   // hourly job failures
   try { const k = ADM.endGifts(getDb()); if (k) console.log('solo gifts ended', k); } catch (e) { console.error('end gifts', e.message); }   // Solo given free: back to Free after its day
 }, 3600_000).unref();
+
+// An error no page caught (in an async page Express does not see it) is logged; it no longer stops the whole server.
+process.on('unhandledRejection', e => console.error('unhandled', e?.stack || e));
 
 app.listen(PORT, () => {
   // Build now, a step at a time, what the first visitors would otherwise wait for: the suggestion table, the checked
@@ -1108,5 +1209,9 @@ app.listen(PORT, () => {
     ...getDb().prepare('SELECT DISTINCT query FROM saved_landscape').pluck().all().map(q => () => Q.areaTrials(q))];
   const next = () => { const f = steps.shift(); if (!f) return; try { f(); } catch (e) { console.error('warm', e.message); } setImmediate(next); };
   setImmediate(next);
+  // Every disease page's top 10, in a worker thread at an easy pace (src/diseasetop.js).
+  // Tell Bing about every page once a week at most, a minute after a start (src/indexnow.js); only on the live site.
+  setTimeout(() => pingIndexNow(sitemapPaths).then(r => r && console.log('indexnow', r)).catch(e => console.error('indexnow', e.message)), 60_000).unref();
+  startDiseaseTop().then(s => console.log(`disease lists: ${s.kept} in ${Math.round(s.ms / 1000)} s (${Math.round(s.cpu / 1000)} s of computer time)${s.errors ? `, ${s.errors} errors` : ''}`));
   console.log(`${BRAND} running on http://localhost:${PORT}  (Stripe: ${process.env.STRIPE_SECRET_KEY ? (B.liveMode() ? 'LIVE' : 'test mode') : 'not configured'}, email: ${process.env.RESEND_API_KEY ? 'Resend' : 'printed to log'})`);
 });

@@ -126,20 +126,25 @@ export const askBox = () => `<section class="box asks"><div class="boxhead">${ic
   ${CAN_DO.map(([, what, ask]) => `<div class="ask"><b>“${ask}”</b><span>${what}</span></div>`).join('')}</section>`;
 
 // The page an app sends you to when it asks to use your account ("Allow" or "Cancel"), in the sign-in layout (spec 16 part 6).
-export function oauthConsentPage({ user, id, client, host, loopback, expired } = {}) {
+export function oauthConsentPage({ user, id, client, host, loopback, logo, impostor, expired } = {}) {
+  // The return website sits large under the heading. An app that calls itself Claude or ChatGPT but sends you somewhere else
+  // gets a different heading, a yellow warning, and Cancel as the main button (security follow-ups, 18 Nov).
+  const allow = `<button class="btn${impostor ? '' : ' primary'}" type="submit" name="allow" value="1">${impostor ? 'Allow anyway' : 'Allow'}</button>`;
+  const cancel = `<button class="btn${impostor ? ' primary' : ''}" type="submit" name="allow" value="0">Cancel</button>`;
   return layout({
     title: `Connect an app | ${BRAND}`, noindex: true, user,
     body: `<main class="signin">${expired ? `<h1>This connection request has expired</h1>
 <p class="lede">Start again from your app: remove and add ${BRAND}, or connect it again.</p>` : `
-<h1>Connect ${esc(client)}</h1>
+<h1>${impostor ? `Connect an app that calls itself “${esc(client)}”` : `Connect ${esc(client)}`}</h1>
+<p class="cshost">${logo ? appIcon(logo) : icon('globe', 18)}<span class="mono">${esc(host)}</span></p>
+${impostor ? `<p class="cswarn" role="alert">This isn't ${esc(impostor.name)}'s website. ${esc(impostor.name)} connects from <b class="mono">${esc(impostor.home)}</b>. Cancel unless you know this app.</p>` : ''}
 <p class="lede">${esc(client)} wants to use ${BRAND} as <b>${esc(user.email)}</b>: search drugs, trials and companies, and read landscapes and milestones. It cannot change anything in your account.</p>
 <section class="box tryq"><div class="boxhead"><h2>Back in ${esc(client)}, try asking</h2></div>
 <ul class="feed efeed"><li><span class="ev">Map every amylin drug in Phase 2 or later</span></li><li><span class="ev">Tell me everything about mazdutide</span></li><li><span class="ev">Which obesity drugs read out in the next six months?</span></li></ul></section>
-<p class="muted small">After you click Allow you go back to <b class="mono">${esc(host)}</b>.${loopback ? ' That is an app on this computer, such as Claude Code or another terminal app. Only allow it if you just started connecting from there.' : ''}</p>
+${loopback ? `<p class="muted small">After you click Allow you go back to <b class="mono">${esc(host)}</b>. That is an app on this computer, such as Claude Code or another terminal app. Only allow it if you just started connecting from there.</p>` : ''}
 <form method="post" action="/oauth/consent" class="pair">
   <input type="hidden" name="r" value="${esc(id)}">
-  <button class="btn primary" type="submit" name="allow" value="1">Allow</button>
-  <button class="btn" type="submit" name="allow" value="0">Cancel</button>
+  ${impostor ? cancel + '\n  ' + allow : allow + '\n  ' + cancel}
 </form>
 <p class="muted small fine">Not ${esc(user.email)}? <a href="/signin?next=${esc(encodeURIComponent('/oauth/consent?r=' + id))}">Use another account</a></p>`}
 </main>`,

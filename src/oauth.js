@@ -9,7 +9,7 @@ import { tokenHandler } from '@modelcontextprotocol/sdk/server/auth/handlers/tok
 import { clientRegistrationHandler } from '@modelcontextprotocol/sdk/server/auth/handlers/register.js';
 import { revocationHandler } from '@modelcontextprotocol/sdk/server/auth/handlers/revoke.js';
 import { metadataHandler } from '@modelcontextprotocol/sdk/server/auth/handlers/metadata.js';
-import { InvalidGrantError, InvalidTargetError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
+import { InvalidClientMetadataError, InvalidGrantError, InvalidTargetError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { getDb } from './db.js';
 import { dropConnections } from './auth.js';
 import { oauthConsentPage } from './pages/connect.js';
@@ -28,8 +28,28 @@ const ourResource = r => !r || r.href.replace(/\/$/, '') === MCP_URL || r.href.r
 
 const clientsStore = {
   getClient: id => { const r = getDb().prepare('SELECT info FROM oauth_client WHERE client_id=?').pluck().get(String(id)); return r ? JSON.parse(r) : undefined; },
-  registerClient: info => { getDb().prepare('INSERT INTO oauth_client (client_id, info) VALUES (?,?)').run(info.client_id, JSON.stringify(info)); return info; },
+  registerClient: info => {
+    const why = clientTooBig(info);
+    if (why) throw new InvalidClientMetadataError(why);
+    getDb().prepare('INSERT INTO oauth_client (client_id, info) VALUES (?,?)').run(info.client_id, JSON.stringify(info));
+    return info;
+  },
 };
+// Anyone may register an app, without signing in, so a registration stays small: a short name, a few return addresses,
+// 4 KB in all. (Without this, one script could fill the disk with huge names.)
+function clientTooBig(info) {
+  if (String(info.client_name || '').length > 100) return 'client_name: at most 100 characters';
+  if ((info.redirect_uris || []).length > 5 || info.redirect_uris.some(u => String(u).length > 500)) return 'redirect_uris: at most 5, each at most 500 characters';
+  if (JSON.stringify(info).length > 4096) return 'client metadata: at most 4 KB';
+  return '';
+}
+// Apps registered over a day ago that never got a sign-in started or a token: deleted (hourly, src/server.js).
+export function pruneClients() {
+  return getDb().prepare(`DELETE FROM oauth_client WHERE created_at < datetime('now','-1 day')
+    AND client_id NOT IN (SELECT client_id FROM oauth_token WHERE client_id IS NOT NULL)
+    AND client_id NOT IN (SELECT client_id FROM oauth_code WHERE client_id IS NOT NULL)
+    AND client_id NOT IN (SELECT client_id FROM oauth_request WHERE client_id IS NOT NULL)`).run().changes;
+}
 
 function issue(clientId, userId, resource) {
   const access = 'ola_' + rand(32), refresh = 'olr_' + rand(32);
@@ -102,6 +122,13 @@ export function appOfToken(token) {
   return [row.client_id, ...uris].some(u => { try { return new URL(u).hostname === 'chatgpt.com'; } catch { return false; } }) ? 'chatgpt' : '';
 }
 
+// The return websites the real Claude and ChatGPT use (Claude: claude.ai/api/mcp/auth_callback, also claude.com;
+// ChatGPT: chatgpt.com/connector_platform_oauth_redirect, also the older chat.openai.com). The first is shown in the warning.
+const MAKERS = [
+  { key: 'claude', name: 'Claude', hosts: ['claude.ai', 'claude.com'] },
+  { key: 'chatgpt', name: 'ChatGPT', hosts: ['chatgpt.com', 'chat.openai.com'] },
+];
+
 const AUTH_METHODS = ['client_secret_post', 'client_secret_basic', 'none'];
 const metadata = {
   issuer: BASE,
@@ -141,7 +168,9 @@ export function oauthRouter({ currentUser }) {
   r.use('/.well-known/oauth-protected-resource/mcp', metadataHandler(resourceMetadata));
   r.use('/.well-known/oauth-protected-resource', metadataHandler(resourceMetadata));
   r.use('/authorize', authorizationHandler({ provider }));
-  // Every Claude and ChatGPT user registers and swaps tokens from the same few addresses, so the per-IP limits are generous.
+  // Every Claude and ChatGPT user registers and swaps tokens from the same few addresses, so the per-IP limits are generous
+  // (registration 1,000 an hour; what stops the disk filling is clientTooBig, each row at most 4 KB, and pruneClients,
+  // which deletes apps unused after a day).
   r.use('/register', clientRegistrationHandler({ clientsStore, clientSecretExpirySeconds: 0, rateLimit: { max: 1000 } }));
   r.use('/token', basicAuth, tokenHandler({ provider, rateLimit: { max: 2000 } }));
   r.use('/revoke', basicAuth, revocationHandler({ provider, rateLimit: { max: 2000 } }));
@@ -157,8 +186,13 @@ export function oauthRouter({ currentUser }) {
     return u.href;
   };
   const view = p => {
-    const host = new URL(p.params.redirectUri).hostname;
-    return { client: p.client?.client_name || 'An app', host, loopback: ['localhost', '127.0.0.1', '[::1]'].includes(host) };
+    const host = new URL(p.params.redirectUri).hostname, client = p.client?.client_name || 'An app';
+    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(host);
+    // An app named like Claude or ChatGPT that does not send you back to that maker's own website is flagged on the page.
+    const maker = !loopback && MAKERS.find(m => client.toLowerCase().includes(m.name.toLowerCase()) && !m.hosts.includes(host));
+    // The real maker's own website shows the maker's logo instead of the globe.
+    const real = MAKERS.find(m => m.hosts.includes(host));
+    return { client, host, loopback, logo: real?.key || '', impostor: maker ? { name: maker.name, home: maker.hosts[0] } : null };
   };
   r.get('/oauth/consent', (req, res) => {
     res.set('Cache-Control', 'no-store');

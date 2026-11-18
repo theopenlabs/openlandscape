@@ -2,7 +2,21 @@
 # which sends each page to the right one (public site vs dashboard).
 openlandscape.app, dashboard.openlandscape.app {
 	encode gzip
+	# Browsers: HTTPS only for a year (no plain-http first visit to intercept), no showing our pages inside another site's frame,
+	# no guessing file types, and other sites see only our address, not the page, in Referer.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options DENY
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
 	reverse_proxy 127.0.0.1:8080
+}
+
+# Temporary address from 6 Nov
+89-167-83-152.sslip.io {
+	redir https://openlandscape.app{uri} permanent
 }
 
 # www forwards to the main address

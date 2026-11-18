@@ -1,12 +1,66 @@
 # OpenLandscape
 
-OpenLandscape shows drug pipelines: every drug in a disease area or mechanism, with its company, target, phase,
-next milestone and the trials behind it. Each line links to its source (ClinicalTrials.gov, the FDA, SEC filings,
-company news). People use it on the website; AI apps such as Claude and ChatGPT use it through a connector.
+Open drug-pipeline landscapes. Pick a disease, target or company and see every drug in development: who owns it,
+how it works, how far it has got, its active trials and what happens next. Every fact links to its source
+(ClinicalTrials.gov, the EU trials register, FDA, EMA, SEC filings, company news).
 
-- Use it: [openlandscape.app](https://openlandscape.app)
-- Free sample, no account: [openlandscape.app/landscapes/obesity](https://openlandscape.app/landscapes/obesity)
-- Add it to Claude or ChatGPT: [openlandscape.app/connect](https://openlandscape.app/connect)
+**[openlandscape.app](https://openlandscape.app)**
+
+![The obesity landscape on openlandscape.app: each drug with how it works, company, stage and next date](brand/screenshot-obesity.png)
+
+- Free sample, no account: [the obesity drug pipeline](https://openlandscape.app/landscapes/obesity)
+- Use it from Claude, ChatGPT, Cursor or any MCP app: [openlandscape.app/connect](https://openlandscape.app/connect)
+
+## Why it exists
+
+Pipeline databases such as Citeline are sold to big pharma for tens of thousands a year, after a sales call. Smaller
+biotechs, consultants and investors build the same landscapes by hand in spreadsheets. OpenLandscape does that work
+from public sources and shows where every line comes from.
+
+- **Free:** no card, no time limit. The top 10 of any list, one landscape in full and 25 AI questions a month.
+  The ready-made landscapes are free to read without an account.
+- **Solo:** $49 a month or $490 a year (before VAT), for one person. Every list in full, follows, and every change as it happens.
+
+Details: [openlandscape.app/pricing](https://openlandscape.app/pricing).
+
+## Use it from your AI assistant (MCP)
+
+OpenLandscape is a remote MCP server (Streamable HTTP). Server URL:
+
+```
+https://openlandscape.app/mcp
+```
+
+You sign in with your OpenLandscape account (OAuth) the first time; a free account works.
+
+- **Claude** (app or claude.ai): find OpenLandscape in the connector directory, or **Settings → Connectors → Add
+  custom connector**, name it OpenLandscape and paste the URL.
+- **Claude Code:**
+
+  ```bash
+  claude mcp add --transport http openlandscape https://openlandscape.app/mcp
+  ```
+
+- **Cursor:** add to `~/.cursor/mcp.json`:
+
+  ```json
+  { "mcpServers": { "openlandscape": { "url": "https://openlandscape.app/mcp" } } }
+  ```
+
+- **Gemini CLI:** add to `~/.gemini/settings.json`, restart, and type `/mcp` to check:
+
+  ```json
+  { "mcpServers": { "openlandscape": { "httpUrl": "https://openlandscape.app/mcp" } } }
+  ```
+
+- **ChatGPT** and other apps: step-by-step on [openlandscape.app/connect](https://openlandscape.app/connect).
+
+Then ask, for example: *"Map every amylin drug in Phase 2 or later, with next milestones."*
+
+Tools: `search`, `landscape`, `trials`, `catalysts`, `who_runs_trials`, `drug`, `changes`, `whoami`, and `show`
+(draws the answer as a card in apps that support it). Every answer carries its sources.
+
+More for AI tools: [openlandscape.app/ai](https://openlandscape.app/ai) and [openlandscape.app/llms.txt](https://openlandscape.app/llms.txt).
 
 ## What is in this copy, and what is not
 
@@ -101,7 +155,7 @@ off; `show` then goes away and the tools answer in text only.
 - How to send changes: [CONTRIBUTING.md](CONTRIBUTING.md)
 - How to report a security problem: [SECURITY.md](SECURITY.md). Please do not open a public issue for it.
 
-## Licences
+## Licence
 
 - The app (server, data loaders, AI connector, website): AGPL-3.0, see `LICENSE`.
 - The client (`client/`): MIT, see `client/LICENSE`.

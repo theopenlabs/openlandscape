@@ -328,14 +328,19 @@ export function buildServer(user, { chatgpt = false } = {}) {
       if (!a) return null;
       try { const out = await run[tool](a); return typeof out === 'string' ? { view: 'note', text: out.replace(/\s*https?:\/\/\S+$/, '') } : out.card; } catch { return null; }
     };
+    // show() counts no lookup, but redrawing runs the lookups again: at most SHOW_PER_MINUTE per account (a normal answer
+    // calls it once), and the same part twice in one call is drawn once. One request full of show() calls froze the server.
     server.registerTool('show', {
       title: 'Show', annotations: READ, ...CARD,
       description: 'Draw one card for your whole answer, after the lookups: the main result open, the other parts as rows the user can open. Pass the same tool and arguments you used, e.g. main {tool:"landscape", args:{area:"amylin", phase_min:2}}, also [{tool:"drug", args:{name:"mazdutide"}}, {tool:"catalysts", args:{area:"obesity", days_ahead:180}}]. At most 4 other parts. Call it once per answer, last. Only draws what you looked up in the last hour; does not use a lookup.',
       inputSchema: { main: part, also: z.array(part).max(4).optional().describe('The other parts of the answer, at most 4, most useful first') },
     }, async ({ main, also = [] }) => {
-      const m = await viewOf(main);
+      if (user && !showAllowed(user.id)) return text('Too many show() calls in the last minute. Call it once per answer, after the lookups.');
+      const once = new Map();
+      const viewOfOnce = p => { const k = JSON.stringify([p.tool, KEY[p.tool].map(f => String(p.args?.[f] ?? '').trim().toLowerCase())]); if (!once.has(k)) once.set(k, viewOf(p)); return once.get(k); };
+      const m = await viewOfOnce(main);
       if (!m) return text(`Nothing shown: ${main.tool} was not looked up in the last hour with these arguments. Look it up first, then call show().`);
-      const parts = (await Promise.all(also.map(viewOf))).filter(Boolean);
+      const parts = (await Promise.all(also.map(viewOfOnce))).filter(Boolean);
       fitCard(m, parts);
       const missed = also.length - parts.length;
       return answer(`Shown as one card${parts.length ? ` with ${parts.length} more ${parts.length === 1 ? 'part' : 'parts'}` : ''}.${missed ? ` ${missed} left out: not looked up in the last hour.` : ''}`,
@@ -346,8 +351,23 @@ export function buildServer(user, { chatgpt = false } = {}) {
   return server;
 }
 
+// show() calls per account in the last minute (in memory: one server, a restart starts again).
+const SHOW_PER_MINUTE = 5;
+const shows = new Map();
+function showAllowed(id) {
+  const now = Date.now(), recent = (shows.get(id) || []).filter(t => now - t < 60_000);
+  if (recent.length >= SHOW_PER_MINUTE) { shows.set(id, recent); return false; }
+  recent.push(now); shows.set(id, recent);
+  if (shows.size > 10_000) shows.delete(shows.keys().next().value);
+  return true;
+}
+// Apps send one message per request; a batch holds at most this many (one request with hundreds of calls froze the server).
+const MAX_BATCH = 5;
+
 // Express handler. Stateless: a fresh server per request, which keeps hosting simple.
 export async function handleMcp(req, res) {
+  if (Array.isArray(req.body) && req.body.length > MAX_BATCH)
+    return res.status(400).json({ jsonrpc: '2.0', error: { code: -32600, message: `At most ${MAX_BATCH} messages in one request.` }, id: null });
   const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   const user = req.params.key ? userFromApiKey(req.params.key) : bearer.startsWith('op_') ? userFromApiKey(bearer) : userFromAccessToken(bearer);
   if (!user && process.env.MCP_OPEN !== '1') {

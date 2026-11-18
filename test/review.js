@@ -26,13 +26,13 @@ db.prepare("INSERT INTO match_candidate (type, left_id, right_id, score, reasons
 let o = R.openItems(db);
 ok(o.ready.map(r => r.id).join() === [rule, newer, older].join(), 'ready to publish: items meeting the automatic rule first, then newest filing first');
 ok(o.other.map(r => r.id).join() === String(none) && o.study.length === 1, 'an item naming no tracked drug is kept apart; same-trial pairs have their own section');
-let html = R.reviewPage(db, { token: 't', by: 'bot' });
-ok(html.includes('camizestrant') && html.includes('The FDA will extend the PDUFA date') && html.includes('Open the SEC 6-K') && html.includes('United States') && html.includes('Review extended'),
-  'card shows drug, the filing’s own sentence, filing link, region and kind in words');
+let html = R.reviewBody(db, { by: 'bot' });
+ok(html.includes('camizestrant') && html.includes('The FDA will extend the PDUFA date for <mark>camizestrant</mark>') && html.includes('Open the SEC 6-K') && html.includes('United States') && html.includes('Review extended') && html.includes('FDA decision on <b>camizestrant</b> delayed'),
+  'card shows a headline sentence, the filing’s own sentence with the drug marked, filing link, region and kind in words');
 const text = html.replace(/<style[\s\S]*?<\/style>|<[^>]+>/g, ' ');
 ok(!/program_id|[{}]|auto:camizestrant|SEC\|https|\bscore\b/.test(text) && !text.includes(`#${rule}`), 'no raw JSON or internal ids in the visible text');
-ok(!html.includes('d.htm') && html.includes('Show all') && R.reviewPage(db, { token: 't', all: true }).includes('d.htm'), 'items that cannot be published are hidden behind “Show all”');
-ok(html.includes('<meta name="referrer" content="no-referrer">'), 'the page never sends its address (with the token) to the sites it links to');
+ok(!html.includes('d.htm') && html.includes('Show all') && R.reviewBody(db, { all: true }).includes('d.htm'), 'items that cannot be published are hidden behind “Show all”');
+ok([...html.matchAll(/<a href="(?:https:|\/drugs\/)[^"]*"([^>]*)>/g)].every(m => m[1].includes('target="_blank" rel="noopener"')), 'filings and drug pages open in a new tab');
 ok(html.includes('Publish</b> puts the item in the public feed') && html.includes('Monday'), 'page says what Publish does');
 
 // ---- publish, dismiss, undo ----
@@ -45,11 +45,30 @@ ok(R.publishItem(db, rule, 'bot') === 'Already handled.' && db.prepare("SELECT c
 const twin = item('https://www.sec.gov/e.htm', { kind: 'approval', date: '2026-04-05' });
 ok(/^Nothing added: already in the feed/.test(R.publishItem(db, twin, 'team')) && db.prepare("SELECT count(*) FROM change").pluck().get() === 1, 'the same news already in the feed: nothing added, and the page says so');
 ok(/^Dismissed/.test(R.dismissItem(db, newer, 'team')) && db.prepare('SELECT status, decided_by FROM match_candidate WHERE id=?').get(newer).decided_by === 'team' && db.prepare("SELECT count(*) FROM change").pluck().get() === 1, 'Dismiss publishes nothing and records who dismissed');
-html = R.reviewPage(db, { token: 't' });
+html = R.reviewBody(db);
 ok(/Published<\/span> camizestrant/.test(html) && /Dismissed<\/span> camizestrant/.test(html) && html.includes('by Bot') && html.includes('by Team'), 'history lists what was published and dismissed, and by whom');
 ok(/^Undone: removed from the feed/.test(R.undoItem(db, rule)) && db.prepare("SELECT count(*) FROM change").pluck().get() === 0
   && db.prepare('SELECT status, change_id FROM match_candidate WHERE id=?').get(rule).status === 'open', 'Undo of a publish removes the feed row and puts the item back in the list');
 ok(/^Undone/.test(R.undoItem(db, newer)) && R.openItems(db).ready.some(r => r.id === newer), 'Undo of a dismiss puts the item back');
 ok(/cannot be published/.test(R.publishItem(db, none, 'team')) && db.prepare("SELECT count(*) FROM change").pluck().get() === 0, 'an item naming no tracked drug cannot be published');
 db.exec("DELETE FROM match_candidate");
-ok(R.reviewPage(db, { token: 't' }).includes('Nothing to review.'), 'empty queue: a clear empty state');
+ok(R.reviewBody(db).includes('Nothing to review.'), 'empty queue: a clear empty state');
+
+// ---- suggestions (simple rules; the reason is said in words) ----
+const sug = (sentence, { date = '2026-11-16', why = 'filing type', items = '8.01', kind = 'filing' } = {}) =>
+  R.suggest(db, { reasons: JSON.stringify({ kind, region: 'US', date, sentence, why, items, publish: { kind, region: 'US', decision_date: date, program: { program_id: 'auto:camizestrant|az' } } }) });
+let g = sug('On November 15, 2026, the FDA issued a Complete Response Letter for camizestrant.');
+ok(g.s === 'publish' && g.why.includes('15 Nov') && g.dates.includes('November 15, 2026'), 'dated one day before the filing: looks new, with the date to highlight');
+g = sug('In June 2023, we received a Complete Response Letter for camizestrant.');
+ok(g.s === 'dismiss' && /Old news.*June 2023/.test(g.why), 'about a date months or years before the filing: old news');
+g = sug('As previously communicated, the FDA has accepted the BLA for camizestrant.');
+ok(g.s === 'dismiss' && g.why.includes('As previously communicated'), 'recap words: old news, quoting them');
+g = sug('In October, the company announced that the CHMP adopted a positive opinion for camizestrant.');
+ok(g.s === 'check' && g.why.includes('<b>October</b>') && g.why.includes('about'), 'a month without a day, weeks before: your call, said as the month');
+g = sug('The FDA accepted the NDA for camizestrant; PDUFA date set for June 14, 2027.', { items: '2.02,9.01' });
+ok(g.s === 'check' && /quarterly results/.test(g.why), 'no past date (the decision date ahead does not count) in a results report: your call');
+ok(sug('The FDA accepted the NDA for camizestrant.', { why: 'meets the automatic rule; held' }).s === 'publish', 'no date, but a news filing that meets the automatic rule: looks new');
+db.prepare("INSERT INTO change (date, kind, program_id, field, region, decision_date) VALUES ('2026-11-10', 'filing', 'auto:camizestrant|az', 'FDA', 'US', '2026-11-10')").run();
+g = sug('On November 15, 2026, the FDA accepted the NDA for camizestrant.');
+ok(g.s === 'dismiss' && g.why.includes('Already in the feed'), 'already in the feed (the same check Publish makes): old news');
+ok(R.datesIn('In December, we filed.', '2026-11-16')[0].at.toISOString().startsWith('2025-12'), 'a month still to come this year means last year');

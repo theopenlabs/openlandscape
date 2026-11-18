@@ -62,8 +62,8 @@ ok(s2.absorbed === 1, 'a folded row\'s verdict is marked absorbed and the kept r
 ok(s2.queued === 1 && db.prepare("SELECT count(*) FROM match_candidate WHERE type='verdict'").pluck().get() === 1, 'second pass queues the same item once');
 
 // The review page shows it and Apply removes the row; a reload then applies the person's decision again.
-const html = R.reviewPage(db, { token: 't' });
-ok(html.includes('Drug rows a reader doubted (1)') && html.includes('Remove the row') && !html.includes('Flagged rows'), 'review page lists the doubt; nothing is flagged');
+const html = R.reviewBody(db);
+ok(html.includes('Drug rows a reader doubted<span class="count">1</span>') && html.includes('Remove the row') && !html.includes('Flagged rows'), 'review page lists the doubt; nothing is flagged');
 const id = db.prepare("SELECT id FROM match_candidate WHERE type='verdict'").pluck().get();
 ok(/Removed/.test(R.applyItem(db, id, 'team')) && !db.prepare("SELECT 1 FROM program WHERE id='auto:keytruda|acme'").get(), 'Apply removes the row');
 row('auto:keytruda|acme', 'Keytruda', 'Acme'); link('NCT00000005', 'auto:keytruda|acme', 'Keytruda');   // link.js rebuilds it

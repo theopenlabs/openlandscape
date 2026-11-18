@@ -249,7 +249,9 @@ export function imageRouter({ landscapes = {} } = {}) {
       { title: slideTitle(p.title), url: `${SITE}/landscapes/${req.params.slug}`, day, theme })));
     send(res, 'image/png', buf);
   });
+  // Any of 30,000 drugs can be asked for: a picture not drawn yet shares the 60-a-minute limit above.
   r.get('/img/og/drugs/:id.png', (req, res) => {
+    if (!cache.has(Q.loadStamp() + '|og:d:' + req.params.id) && !newRidgeAllowed()) return res.status(429).send('Busy, try again in a minute');
     const buf = once('og:d:' + req.params.id, () => { const d = Q.drug(req.params.id); return d ? svgToPng(drugPreview(d), 1200) : null; });
     return buf ? send(res, 'image/png', buf) : res.status(404).send('Not found');
   });

@@ -6,9 +6,10 @@
 //    Past it, lists show their top 10 (Free: none) and downloads are off. Crossing 1,500 new in a day or 4,000 in 30 days
 //    sends us an email the same day.
 // 2. Public pages opened signed out: 60 an hour and 200 a day per computer, then "sign in free to continue". Google and Bing,
-//    checked by their address, are let through.
+//    checked by their address, are let through; so are OpenAI's, Perplexity's and Anthropic's crawlers whose address is in
+//    their company's published list, up to 2,000 pages an hour each.
 // 3. New accounts: 5 a day per computer; "name+tag@" and Gmail's dots count as one address; throwaway domains are refused.
-import { isIPv6 } from 'node:net';
+import { isIPv6, BlockList } from 'node:net';
 import { reverse, lookup } from 'node:dns/promises';
 import { getDb } from './db.js';
 import { isPaid, logUsage, usageCount, dayStart } from './auth.js';
@@ -124,6 +125,55 @@ export async function isSearchBot(ua, ip) {
   botSeen.set(ip, { ok, at: Date.now() });
   return ok;
 }
+// AI crawlers (18 Nov 2026: verified ones only). OpenAI's, Perplexity's and Anthropic's crawlers pass the page limit
+// when their address is in the list their company publishes; each crawler (by name) at most AI_PAGES_AN_HOUR, then the
+// normal limit applies. A name we cannot check against a list keeps the normal limit. Lists are fetched when first needed
+// and again after a day; if a fetch fails the last list is kept (none yet: not verified).
+export const AI_PAGES_AN_HOUR = 2000;
+const AI_BOTS = [
+  { ua: /\b(GPTBot|OAI-SearchBot|ChatGPT-User)\b/i, lists: ['https://openai.com/gptbot.json', 'https://openai.com/searchbot.json', 'https://openai.com/chatgpt-user.json'] },
+  { ua: /\b(PerplexityBot|Perplexity-User)\b/i, lists: ['https://www.perplexity.com/perplexitybot.json', 'https://www.perplexity.com/perplexity-user.json'] },
+  { ua: /\b(ClaudeBot|Claude-User|Claude-SearchBot)\b/i, lists: ['https://claude.com/crawling/bots.json'] },
+];
+const aiLists = new Map();   // list address -> { at, block: BlockList, loading }
+// A published list ({ prefixes: [{ ipv4Prefix } | { ipv6Prefix }] }) as a BlockList.
+export function aiList(url, json, at = Date.now()) {
+  const block = new BlockList();
+  for (const p of json?.prefixes || []) {
+    const [cidr, type] = p.ipv4Prefix ? [p.ipv4Prefix, 'ipv4'] : p.ipv6Prefix ? [p.ipv6Prefix, 'ipv6'] : [];
+    if (!cidr) continue;
+    const [addr, bits] = cidr.split('/');
+    try { block.addSubnet(addr, +bits, type); } catch { /* a malformed line is skipped */ }
+  }
+  aiLists.set(url, { at, block });
+  return block;
+}
+async function listFor(url) {
+  let c = aiLists.get(url);
+  if (!c || (Date.now() - c.at >= 864e5 && !c.loading)) {
+    const loading = within(fetch(url, { headers: { 'user-agent': 'OpenLandscape crawler check' } }).then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))), 5000)
+      .then(j => aiList(url, j))
+      .catch(e => { console.error('crawler list', url, e.message); const old = aiLists.get(url); old.at = Date.now() - 864e5 + 3600e3; old.loading = null; return old.block; });
+    c = { at: c?.at || 0, block: c?.block || null, loading };
+    aiLists.set(url, c);
+  }
+  return c.block || c.loading;   // a stale list answers at once while the new one loads
+}
+const aiHourly = new Map();   // crawler name -> { hr, n }
+// True when `ua` names an AI crawler, `ip` is in its company's list, and the crawler is under AI_PAGES_AN_HOUR (the page is counted).
+export async function isAiCrawler(ua, ip, now = new Date()) {
+  const bot = AI_BOTS.find(b => b.ua.test(ua || '')); if (!bot) return false;
+  ip = String(ip || '').replace(/^::ffff:(?=\d+\.)/, '');
+  const type = isIPv6(ip) ? 'ipv6' : 'ipv4';
+  const blocks = await Promise.all(bot.lists.map(listFor));
+  if (!blocks.some(b => b?.check(ip, type))) return false;
+  const name = (ua.match(bot.ua)[1] || '').toLowerCase(), hr = now.toISOString().slice(0, 13);
+  let h = aiHourly.get(name);
+  if (!h || h.hr !== hr) { h = { hr, n: 0 }; aiHourly.set(name, h); }
+  if (h.n >= AI_PAGES_AN_HOUR) return false;
+  h.n++;
+  return true;
+}
 const hourly = new Map();   // computer -> { hr, n }: the hour's count in memory, the day's in visitor_day
 // One public page opened signed out from `ip`: true if it may open (and is counted), false past the limit. `agent`: the program
 // name the computer gave, kept for the bot watch (visitor_day.agent; rows are deleted after 30 days, src/visits.js).
@@ -170,8 +220,9 @@ export function signupProblem(email, ip) {
   if (!/^[^@\s]+@[^@\s]+$/.test(email) || db.prepare('SELECT 1 FROM user WHERE email=?').get(email)) return '';
   const dom = email.split('@')[1] || '';
   if (THROWAWAY.has(dom)) return 'throwaway';
+  // The domain is typed by the visitor: % and _ in it are matched as themselves, so a@%.% cannot match every account.
   const key = emailKey(email), doms = dom === 'gmail.com' || dom === 'googlemail.com' ? ['gmail.com', 'googlemail.com'] : [dom];
-  if (doms.some(d => db.prepare('SELECT email FROM user WHERE email LIKE ?').pluck().all(`%@${d}`).some(e => emailKey(e) === key))) return 'variant';
+  if (doms.some(d => db.prepare("SELECT email FROM user WHERE email LIKE ? ESCAPE '\\'").pluck().all(`%@${d.replace(/[\\%_]/g, '\\$&')}`).some(e => emailKey(e) === key))) return 'variant';
   if (ip && db.prepare("SELECT count(*) FROM user WHERE signup_ip=? AND created_at >= datetime('now','-1 day')").pluck().get(ipKey(ip)) >= NEW_ACCOUNTS_A_DAY) return 'manyaccounts';
   return '';
 }
