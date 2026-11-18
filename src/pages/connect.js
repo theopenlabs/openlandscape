@@ -38,16 +38,18 @@ ${footer()}
   });
 }
 
-// The terminal panel shows a real landscape() result, not a made-up one.
+// The terminal panel shows a real landscape() result, not a made-up one. Up to 10 drugs all show; more, the first 8 and
+// "and N more", so the rows always add up to the count under them. The first date is looked for among all of them.
 export function demoTerminal(L) {
-  const rows = L.programs.slice(0, 8);
-  const first = rows.filter(p => p.next_catalyst).sort((a, b) => (a.next_catalyst.date || '').localeCompare(b.next_catalyst.date || ''))[0];
+  const rows = L.programs.length > 10 ? L.programs.slice(0, 8) : L.programs, rest = L.programs.length - rows.length;
+  const first = L.programs.filter(p => p.next_catalyst).sort((a, b) => (a.next_catalyst.date || '').localeCompare(b.next_catalyst.date || ''))[0];
   return `<div class="term" aria-label="Example Claude session, real tool output">
   <div class="h"><i></i><i></i><i></i><span style="margin-left:8px">claude · openlandscape · live data</span></div>
   <div><span class="p">›</span> which oral GLP-1 pills are in phase 3 or later, and who reads out first?</div><br>
   <div class="c">● openlandscape.landscape(area: "oral GLP-1", phase_min: 3)</div>
   <table><tr class="c"><td>drug</td><td>company</td><td>phase</td><td>next</td></tr>
-  ${rows.map(p => `<tr><td>${esc(p.drug)}</td><td>${esc(p.company.split(' · ')[0])}</td><td>${esc(p.phase.label)}</td><td>${esc(p.next_catalyst?.label || '—')}</td></tr>`).join('')}
+  ${rows.map(p => `<tr><td>${esc(p.drug)}</td><td>${esc(p.company.split(' · ')[0])}</td><td>${esc(p.phase.label)}</td><td>${esc(p.next_catalyst?.label || '—')}</td></tr>`).join('')}${rest ? `
+  <tr class="c"><td colspan="4">and ${rest} more</td></tr>` : ''}
   </table><br>
   <div>${esc(L.summary.split('.')[0])}.${first ? ` The first registry date is <b>${esc(first.drug)}</b> (${esc(first.company)}), ${esc(first.next_catalyst.label)}, <span class="p">${esc(first.next_catalyst.nct || '')}</span>.` : ''}</div><br>
   <div class="ok">✓ ${L.stats.programs} drugs · ${L.stats.trials} trials · sources attached</div>

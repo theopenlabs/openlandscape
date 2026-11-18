@@ -33,6 +33,14 @@ ok(lp.includes('<link rel="canonical" href="https://openlandscape.app/landscapes
 const lp3 = landscapePage(fakeL, { slug: 'obesity', title: 'Obesity drug landscape', crumb: 'Metabolic', seo, phase_min: 3, own_phase: 2 });
 ok(!lp3.includes('Obesity drug pipeline: GLP-1') && lp3.includes('Obesity drug landscape, '), 'another stage keeps the plain title');
 
+// The /connect example: the drugs listed add up to the count under them.
+const { demoTerminal } = await import('../src/pages/connect.js');
+const progs = n => Array.from({ length: n }, (_, i) => ({ drug: `drug${i}`, company: 'Co', phase: { label: 'Phase 3' }, next_catalyst: { label: `${i + 1} Jan 2027`, date: `2027-01-${String(30 - i).padStart(2, '0')}`, nct: 'NCT0' + i } }));
+const term = n => demoTerminal({ programs: progs(n), summary: `${n} drugs in Phase 3 or later.`, stats: { programs: n, trials: 50 } });
+const t9 = term(9), t12 = term(12), rowsIn = h => (h.match(/<tr><td>/g) || []).length;
+ok(rowsIn(t9) === 9 && !t9.includes('more</td>') && t9.includes('✓ 9 drugs'), 'the /connect example lists all 9 drugs when it says 9');
+ok(rowsIn(t12) === 8 && t12.includes('and 4 more</td>') && t12.includes('<b>drug11</b>'), 'with more than 10: the first 8, "and 4 more", and the first date found among all of them');
+
 const { wordingSlug } = await import('../src/diseasemap.js');
 ok(wordingSlug('nothing like this') === null, 'a condition no disease page has stays unlinked');
 
