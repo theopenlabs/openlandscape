@@ -1,29 +1,100 @@
-# OpenLandscape
+<p align="center">
+  <img src="brand/readme/banner.png" alt="OpenLandscape: every drug in development, with a source for every fact. Free to start, $49 a month, open source.">
+</p>
 
-Open drug-pipeline landscapes. Pick a disease, target or company and see every drug in development: who owns it,
-how it works, how far it has got, its active trials and what happens next. Every fact links to its source
-(ClinicalTrials.gov, the EU trials register, FDA, EMA, SEC filings, company news).
+<p align="center">
+  Drug-pipeline landscapes from public registries: every drug for a disease, target or company,<br>
+  who owns it, how far it has got and what happens next. On the web, and inside your AI assistant.
+</p>
 
-**[openlandscape.app](https://openlandscape.app)**
+<p align="center">
+  <a href="https://openlandscape.app"><b>openlandscape.app</b></a> ·
+  <a href="https://openlandscape.app/landscapes/obesity">Try it (no account)</a> ·
+  <a href="#use-it-from-your-ai-assistant">Use it from your AI</a> ·
+  <a href="#openlandscape-and-the-big-pipeline-databases">vs Citeline</a> ·
+  <a href="#what-it-costs">What it costs</a> ·
+  <a href="#run-it-yourself">Run it yourself</a>
+</p>
 
-![The obesity landscape on openlandscape.app: each drug with how it works, company, stage and next date](brand/screenshot-obesity.png)
+## Why OpenLandscape
 
-- Free sample, no account: [the obesity drug pipeline](https://openlandscape.app/landscapes/obesity)
-- Use it from Claude, ChatGPT, Cursor or any MCP app: [openlandscape.app/connect](https://openlandscape.app/connect)
+**A source for every fact.** Every stage, date and number links to where it came from: ClinicalTrials.gov, the EU
+trials register, FDA, EMA, SEC filings or the company's own news. Nothing to take on trust.
 
-## Why it exists
+**A fair price.** Pipeline databases such as Citeline are sold to big pharma for tens of thousands a year, after a
+sales call. OpenLandscape starts free and costs $49 a month for everything.
 
-Pipeline databases such as Citeline are sold to big pharma for tens of thousands a year, after a sales call. Smaller
-biotechs, consultants and investors build the same landscapes by hand in spreadsheets. OpenLandscape does that work
-from public sources and shows where every line comes from.
+**Open by default.** The code is here, so anyone can see how every list is made. Your AI assistant can use it
+directly through the MCP connector.
+
+## What it does
+
+### A landscape for any disease, target or company
+
+Search for an area and get every drug in active trials: how it works, who owns it, its stage and its next date.
+Filter by stage, mechanism or China-based companies, copy the table or download it. Ready-made landscapes
+(obesity, PD-1/VEGF bispecifics, in vivo CAR-T, lung cancer) are free to read without an account.
+
+![The obesity landscape: what changed this week, what is coming up, and every drug with how it works, company, stage and next date](brand/readme/landscape.png)
+
+### Every drug, with its trials and sources
+
+A drug page says what the drug is in plain words, its other names and code names, every trial and what it is tested
+for, with the registry entry behind each line.
+
+![The mazdutide page: stage, next date, active trials and targets, and what the drug is, in plain words with sources](brand/readme/drug.png)
+
+### Every company's pipeline
+
+A company page lists everything it runs in trials, what is furthest along, what reads out next, and its SEC filings.
+
+![The Novo Nordisk page: drugs furthest along, next date, number of drugs and trials, and the drug list](brand/readme/company.png)
+
+### Ask your AI
+
+Add the connector to Claude, ChatGPT, Cursor or any MCP app and ask in plain words. The answer comes from the same
+data, with the sources attached.
+
+![A real answer through the connector: oral GLP-1 pills in Phase 3 or later, with company, stage and next date](brand/readme/ai-answer.png)
+
+### Follow an area, hear what changed
+
+Follow a landscape and see every new trial, moved date, approval and filing as it happens. A Monday email sums up
+the week and the dates coming up.
+
+<p align="center"><img src="brand/readme/monday-email.png" width="520" alt="The Monday email: what changed this week and what is coming up, each line with its source"></p>
+
+### Light, dark and on your phone
+
+![The PD-1/VEGF bispecifics landscape in dark mode](brand/readme/dark-mode.png)
+
+![OpenLandscape on two phones: the obesity landscape and the mazdutide page](brand/readme/phones.png)
+
+<p align="center">
+  <sub>Screenshots are from the live data. The account in them (alex@example.com) is made up.</sub>
+</p>
+
+## OpenLandscape and the big pipeline databases
+
+| | OpenLandscape | Citeline and similar |
+|---|---|---|
+| Price | Free to start, then $49 a month | Tens of thousands a year |
+| Getting started | Sign in with your email, no card | A sales call and a contract |
+| Where the facts come from | Public registries, regulators, filings and company news, each linked | Also their own analysts and private research |
+| Code | Open source (AGPL-3.0) | Closed |
+
+The big databases cover more, because they pay analysts to read what is not public. OpenLandscape covers what is
+public, shows you the source for each line, and costs a small part of the price.
+
+## What it costs
 
 - **Free:** no card, no time limit. The top 10 of any list, one landscape in full and 25 AI questions a month.
-  The ready-made landscapes are free to read without an account.
-- **Solo:** $49 a month or $490 a year (before VAT), for one person. Every list in full, follows, and every change as it happens.
+- **Solo:** $49 a month or $490 a year (before VAT), for one person. Every list in full, follows, every change as it
+  happens and the Monday email.
 
 Details: [openlandscape.app/pricing](https://openlandscape.app/pricing).
 
-## Use it from your AI assistant (MCP)
+## Use it from your AI assistant
 
 OpenLandscape is a remote MCP server (Streamable HTTP). Server URL:
 
@@ -62,7 +133,9 @@ Tools: `search`, `landscape`, `trials`, `catalysts`, `who_runs_trials`, `drug`, 
 
 More for AI tools: [openlandscape.app/ai](https://openlandscape.app/ai) and [openlandscape.app/llms.txt](https://openlandscape.app/llms.txt).
 
-## What is in this copy, and what is not
+## Run it yourself
+
+### What is in this copy, and what is not
 
 This repository is the open-source copy of the code. It has everything the site runs on: the data loaders, the
 grouping of trials into drugs, the website, sign-in, billing, the AI connector and the checks.
@@ -79,7 +152,7 @@ So a copy you build yourself is thinner than the live site:
 - No company logos. Some company searches by short name find nothing.
 - The files that hold checked data are empty stand-ins with the right shape (in `seed/`), so the code runs.
 
-## Run it on your computer
+### Run it on your computer
 
 Needs Node 22 or later, and about 1 GB of free disk space.
 
@@ -104,7 +177,7 @@ No keys are needed to run it locally:
 To add keys, copy `.env.example` to `.env` and fill in what you need. [SETUP.md](SETUP.md) lists every account and
 key, and how to run your own server.
 
-### Run the checks
+#### Run the checks
 
 ```bash
 TODAY=2026-11-06 npm run check
